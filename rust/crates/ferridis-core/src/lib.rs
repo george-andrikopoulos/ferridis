@@ -26,6 +26,7 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod caller;
 pub mod capability;
 pub mod connection;
 pub mod error;
@@ -35,6 +36,7 @@ pub mod storage;
 pub mod tier;
 pub mod token;
 
+pub use caller::CallerPolicy;
 pub use capability::{CapabilityRef, CapabilityVersion};
 pub use connection::{Authorized, Connection, ConnectionId, Expired, Pending, Revoked};
 pub use error::FerridisError;

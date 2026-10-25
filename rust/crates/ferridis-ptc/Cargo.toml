@@ -1,0 +1,37 @@
+[package]
+name = "ferridis-ptc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Programmatic tool calling for Ferridis: registered capabilities as Claude Messages API tools that code running in the code-execution container can call, with caller policy enforced at the gateway."
+
+[dependencies]
+ferridis-core = { workspace = true }
+ferridis-client = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["parsing"] }
+url = { workspace = true }
+secrecy = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+ferridis-adapter-sdk = { workspace = true }
+ferridis-adapter-fs = { path = "../ferridis-adapter-fs", version = "0.1.0" }
+axum = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "ptc_run"
+path = "examples/ptc_run.rs"

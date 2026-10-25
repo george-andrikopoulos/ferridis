@@ -88,13 +88,17 @@ async fn serve_manifest(State(cap): State<Arc<dyn Capability>>) -> Response {
             let meta = m.intent_metadata(v);
             let is_default = match meta {
                 None => true,
-                Some(md) => matches!(md.kind, IntentKind::Request) && md.chunk_schema_url.is_none(),
+                Some(md) => {
+                    matches!(md.kind(), IntentKind::Request)
+                        && md.chunk_schema_url().is_none()
+                        && md.declared_callers().is_none()
+                }
             };
             if is_default {
                 serde_json::Value::String(v.as_str().to_string())
             } else {
                 let md = meta.expect("non-default implies present");
-                let kind_str = match md.kind {
+                let kind_str = match md.kind() {
                     IntentKind::Request => "request",
                     IntentKind::Stream => "stream",
                 };
@@ -107,10 +111,16 @@ async fn serve_manifest(State(cap): State<Arc<dyn Capability>>) -> Response {
                     "kind".to_string(),
                     serde_json::Value::String(kind_str.to_string()),
                 );
-                if let Some(url) = &md.chunk_schema_url {
+                if let Some(url) = md.chunk_schema_url() {
                     obj.insert(
                         "chunk_schema_url".to_string(),
                         serde_json::Value::String(url.as_str().to_string()),
+                    );
+                }
+                if let Some(callers) = md.declared_callers() {
+                    obj.insert(
+                        "callers".to_string(),
+                        serde_json::Value::String(callers.to_string()),
                     );
                 }
                 serde_json::Value::Object(obj)
@@ -395,6 +405,36 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(json["id"], "test.echo.v1");
         assert_eq!(json["intents"][0], "echo");
+    }
+
+    /// PTC-1 on the wire: a publisher's `callers` declaration survives the
+    /// served manifest and parses back to the same policy, so a client can
+    /// act on it. Flat intents stay flat.
+    #[tokio::test]
+    async fn served_manifest_carries_the_callers_declaration() {
+        let declared = VALID_MANIFEST.replace(
+            r#""intents": ["echo"]"#,
+            r#""intents": [{"verb": "echo", "callers": "code"}, "ping"]"#,
+        );
+        let addr = spawn(AdapterServer::new(Echo {
+            manifest: Manifest::parse(&declared).expect("declared manifest parses"),
+        }))
+        .await;
+        let body = reqwest::get(format!("http://{addr}/manifest.json"))
+            .await
+            .expect("manifest served")
+            .text()
+            .await
+            .expect("manifest body");
+        let served = Manifest::parse(&body).expect("served manifest parses");
+        let verb = |s: &str| IntentVerb::parse(s).expect("test verb is canonical");
+        assert_eq!(
+            served.declared_callers(&verb("echo")),
+            Some(ferridis_core::CallerPolicy::Code)
+        );
+        assert_eq!(served.declared_callers(&verb("ping")), None);
+        let json: serde_json::Value = serde_json::from_str(&body).expect("served JSON");
+        assert_eq!(json["intents"][1], "ping", "undeclared intents stay flat");
     }
 
     #[tokio::test]

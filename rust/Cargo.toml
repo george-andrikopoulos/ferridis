@@ -15,6 +15,7 @@ members = [
     "crates/ferridis-mcp-server",
     "crates/ferridis-discovery-broker",
     "crates/ferridis-stdio-bridge",
+    "crates/ferridis-ptc",
 ]
 
 [workspace.package]

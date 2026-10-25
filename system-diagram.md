@@ -34,12 +34,13 @@ The same flow runs for Copilot and Zed; the only difference is which shim binary
 
 ## Crate inventory (kept in sync with `rust/crates/`)
 
-Fourteen crates. The diagram shows the fs-adapter call path; the full set is:
+Fifteen crates. The diagram shows the fs-adapter call path; the full set is:
 
 - **Types:** `ferridis-core`
 - **Wire:** `ferridis-protocol`
 - **Frameworks:** `ferridis-adapter-sdk` (publisher), `ferridis-client` (consumer)
 - **Adapters:** `ferridis-adapter-fs`, `ferridis-adapter-claude-cli`, `ferridis-adapter-google-calendar`, `ferridis-adapter-slack`, `ferridis-adapter-github`, `ferridis-adapter-notion`
+- **Model hosts:** `ferridis-ptc` (programmatic tool calling over the Messages API; not yet drawn in the diagram)
 - **Binaries:** `ferridis-cli` (sidecar), `ferridis-mcp-server` (MCP publisher shim), `ferridis-discovery-broker` (port 7825), `ferridis-stdio-bridge` (port 7826)
 
 Full crate topology and dependency layering: [architecture.md](./architecture.md#workspace-code-architecture).

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use url::Url;
 
+use crate::caller::CallerPolicy;
 use crate::error::FerridisError;
 use crate::intent::IntentVerb;
 use crate::tier::{Tier, Tiers};
@@ -70,11 +71,31 @@ pub enum IntentKind {
 /// schema URL.
 #[derive(Debug, Clone, Default)]
 pub struct IntentMetadata {
+    kind: IntentKind,
+    chunk_schema_url: Option<Url>,
+    callers: Option<CallerPolicy>,
+}
+
+impl IntentMetadata {
     /// Whether this intent returns a single response or a stream.
-    pub kind: IntentKind,
+    #[must_use]
+    pub fn kind(&self) -> IntentKind {
+        self.kind
+    }
+
     /// For streamed intents, the JSON Schema each chunk's `data`
-    /// payload conforms to. None for request-kind intents.
-    pub chunk_schema_url: Option<Url>,
+    /// payload conforms to. `None` for request-kind intents.
+    #[must_use]
+    pub fn chunk_schema_url(&self) -> Option<&Url> {
+        self.chunk_schema_url.as_ref()
+    }
+
+    /// Who the publisher says may call this intent as a model tool
+    /// (protocol v0.7, optional; decision PTC-1). `None` when undeclared.
+    #[must_use]
+    pub fn declared_callers(&self) -> Option<CallerPolicy> {
+        self.callers
+    }
 }
 
 /// One named event channel a capability emits on.
@@ -193,6 +214,15 @@ impl Manifest {
             .get(verb)
             .map(|m| m.kind)
             .unwrap_or_default()
+    }
+
+    /// The publisher's caller declaration for `verb`, or `None` when the
+    /// intent is undeclared or carries no `callers` field.
+    #[must_use]
+    pub fn declared_callers(&self, verb: &IntentVerb) -> Option<CallerPolicy> {
+        self.intent_metadata
+            .get(verb)
+            .and_then(IntentMetadata::declared_callers)
     }
 
     /// Where to load the full schema (OpenAPI or AsyncAPI).
@@ -398,6 +428,8 @@ enum RawIntentEntry {
         kind: Option<IntentKind>,
         #[serde(default)]
         chunk_schema_url: Option<String>,
+        #[serde(default)]
+        callers: Option<CallerPolicy>,
     },
 }
 
@@ -431,17 +463,23 @@ impl RawManifest {
         let mut intents = BTreeSet::new();
         let mut intent_metadata: BTreeMap<IntentVerb, IntentMetadata> = BTreeMap::new();
         for raw in &intents_raw {
-            let (verb_str, kind, chunk_schema_url_raw): (&str, IntentKind, Option<&str>) = match raw
-            {
-                RawIntentEntry::Flat(s) => (s.as_str(), IntentKind::default(), None),
+            let (verb_str, kind, chunk_schema_url_raw, callers): (
+                &str,
+                IntentKind,
+                Option<&str>,
+                Option<CallerPolicy>,
+            ) = match raw {
+                RawIntentEntry::Flat(s) => (s.as_str(), IntentKind::default(), None, None),
                 RawIntentEntry::Structured {
                     verb,
                     kind,
                     chunk_schema_url,
+                    callers,
                 } => (
                     verb.as_str(),
                     kind.unwrap_or_default(),
                     chunk_schema_url.as_deref(),
+                    *callers,
                 ),
             };
             let v = IntentVerb::parse(verb_str)?;
@@ -470,6 +508,7 @@ impl RawManifest {
                 IntentMetadata {
                     kind,
                     chunk_schema_url,
+                    callers,
                 },
             );
         }
@@ -730,6 +769,35 @@ mod tests {
             }
             other => panic!("expected InvalidManifest, got {other:?}"),
         }
+    }
+
+    /// PTC-1: a structured entry may declare `callers`; flat entries and
+    /// structured entries without it stay undeclared (`None`).
+    #[test]
+    fn parses_the_optional_callers_declaration() {
+        let json = MANIFEST_WITH_STREAM_INTENT.replace(
+            r#"{"verb": "list-events"}"#,
+            r#"{"verb": "list-events", "callers": "code"}"#,
+        );
+        let m = Manifest::parse(&json).expect("manifest with callers parses");
+        let verb = |s: &str| IntentVerb::parse(s).expect("test verb is canonical");
+        assert_eq!(
+            m.declared_callers(&verb("list-events")),
+            Some(CallerPolicy::Code)
+        );
+        assert_eq!(m.declared_callers(&verb("read-event")), None);
+        assert_eq!(m.declared_callers(&verb("search")), None);
+    }
+
+    /// An unknown `callers` value fails the whole manifest rather than
+    /// silently degrading to "undeclared": `"both"` is not a policy.
+    #[test]
+    fn rejects_an_unknown_callers_value() {
+        let json = MANIFEST_WITH_STREAM_INTENT.replace(
+            r#"{"verb": "list-events"}"#,
+            r#"{"verb": "list-events", "callers": "both"}"#,
+        );
+        assert!(Manifest::parse(&json).is_err());
     }
 
     #[test]

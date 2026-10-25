@@ -1403,6 +1403,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferridis-ptc"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "ferridis-adapter-fs",
+ "ferridis-adapter-sdk",
+ "ferridis-client",
+ "ferridis-core",
+ "futures-util",
+ "proptest",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "wiremock",
+]
+
+[[package]]
 name = "ferridis-stdio-bridge"
 version = "0.1.0"
 dependencies = [

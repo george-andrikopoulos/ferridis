@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 35756503fa7be913a2bbbb3994d73a37bec26246474671f02ab9546a48628b90 # shrinks to calls = [("ferridis_ferridis_fs_v1_read_file", Direct)]
+cc 79e33e679e1bb73fc531a75cb970701cef384ae69fc926c25c429b4d5579581d # shrinks to calls = [("ferridis_ferridis_fs_v1_read_file", Direct)]

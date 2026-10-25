@@ -28,8 +28,8 @@ Actionable items in priority order. Cross off as you finish them. The detailed t
 
 ## Verify (passing on Rust 1.95.0 / Edition 2024 as of last run)
 
-- [x] `cd rust && cargo check --workspace` — workspace compiles (14 crates: core, protocol, adapter-sdk, adapter-fs, adapter-claude-cli, adapter-gcal, adapter-slack, adapter-github, adapter-notion, client, cli, mcp-server, discovery-broker, stdio-bridge)
-- [x] `cargo test --workspace` — full test suite passes across all 14 crates (see FEATURES.md for per-crate breakdown)
+- [x] `cd rust && cargo check --workspace` — workspace compiles (15 crates: core, protocol, adapter-sdk, adapter-fs, adapter-claude-cli, adapter-gcal, adapter-slack, adapter-github, adapter-notion, client, cli, mcp-server, discovery-broker, stdio-bridge, ptc)
+- [x] `cargo test --workspace` — full test suite passes across all 15 crates (see FEATURES.md for per-crate breakdown)
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` — zero warnings
 - [x] `bash cleanup.sh` — root-level leftovers removed
 
@@ -189,8 +189,16 @@ Design gate: decisions PTC-1, PTC-2 and PTC-3 in the [architecture.md](./archite
   - [x] `ferridis-client`: `CapabilityRecord` response schemas, `Client::load_response_schemas` (adapter `/schema` first, then `schema_url`)
   - [x] `ferridis-client::catalogue`: tool naming, `describe()`, input-schema precedence and stream collection, moved out of `ferridis-mcp-server` (PTC-3)
   - [x] `ferridis-mcp-server`: `tools.rs` becomes a thin projection; registration loads response schemas; e2e pin that `tools/list` descriptions carry the schema
-- [ ] **Step 3 — `ferridis-ptc` crate** (lib + example): Messages API over reqwest, `PendingProgrammaticCalls` typestate, `ContainerId`/`ContainerExpiry` newtypes, caller-policy enforcement, recursive-`$ref` downgrade, `strict` stripped, caller recorded in tier-used telemetry. Also: move `AdapterConfig` + `register_adapters` into `ferridis-client` (PTC-3); add the manifest `callers` field (v0.7) and the adapters.json override (PTC-1).
-- [ ] **Step 4 — tests**: wiremock replay of recorded API responses (no tokens spent by default); property tests (one result per programmatic call; a continuation holds only tool_results; a refusal never reaches the adapter); one `#[ignore]`'d live smoke test behind an env var, with its cost stated.
+- [x] **Step 3 — `ferridis-ptc` crate** (lib + `ptc_run` example). Rows in FEATURES.md § Programmatic tool calling.
+  - [x] `ferridis-core`: `CallerPolicy`, optional manifest `callers` (v0.7); adapter SDK re-serves it
+  - [x] `ferridis-client::adapters`: `AdaptersFile` (bare array or `{adapters, callers}`), `register_adapters` with typed errors, moved out of `ferridis-mcp-server` (PTC-3); mcp-server's `config.rs` deleted
+  - [x] `ferridis-client`: `CatalogueEntry::declared_callers`, `ToolName::parse`, `CallOrigin` + `dispatch_from` / `dispatch_streaming_from` (caller on the tier-used record)
+  - [x] `ferridis-ptc`: policy resolution with `$ref` downgrade, tools projection (no `strict`), `PendingCalls<WithContainer|NoContainer>` typestate, `ContainerId`/`ContainerExpiry` with refusal after expiry, two-way caller gate in `Executor`, `run` with `MaxTurns`
+- [x] **Step 4 — tests** (no tokens spent by default). Every pin drilled by cutting its wiring, 2026-10-25.
+  - [x] wiremock replay (`tests/replay.rs`, 6 tests) against a real in-process fs adapter. Fixtures are **transcribed from the documented response shapes**, not recorded; recording real responses would need the live run below
+  - [x] property tests (`src/properties.rs`): one result per programmatic call and nothing else in the continuation; a refusal never reaches the dispatcher
+  - [x] one `#[ignore]`'d live smoke test (`tests/live_smoke.rs`), gated on `FERRIDIS_PTC_LIVE=1` + `ANTHROPIC_API_KEY`, cost estimated in its header
+- [ ] **Run the live smoke test once** (George's call: about $0.10–0.15). Replace the estimate in `live_smoke.rs` with the measured usage it prints, and flip the FEATURES.md live row from **NOTHING YET — exposed**.
 - [ ] README "What runs today": update only after the end-to-end live run works.
 
 Out of scope for PTC (separate items, not started):

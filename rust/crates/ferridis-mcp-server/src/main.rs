@@ -38,7 +38,6 @@
 // context and we don't want to box it everywhere just to hush clippy.
 #![allow(clippy::result_large_err)]
 
-mod config;
 mod http_transport;
 mod oauth_server;
 mod protocol;
@@ -48,15 +47,15 @@ mod tools;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use ferridis_client::adapters::{AdaptersFile, register_adapters, source_with_response_schemas};
+use ferridis_client::catalogue::Catalogue;
 use ferridis_client::{Client, DiscoveryHandle, Wallet};
 use ferridis_core::CapabilityRef;
 use tracing::{error, info, warn};
 use url::Url;
 
-use crate::config::AdapterConfig;
 use crate::server::Server;
 use crate::tools::ToolCatalogue;
-use ferridis_client::catalogue::{Catalogue, CatalogueSource};
 
 #[tokio::main]
 async fn main() {
@@ -100,15 +99,16 @@ async fn main() {
         }
     };
 
-    let adapters = match config::load(&args.adapters_config) {
+    let adapters_file = match AdaptersFile::load(&args.adapters_config) {
         Ok(v) => v,
         Err(e) => {
             error!(error = %e, "failed to load adapters config");
             std::process::exit(1);
         }
     };
+    let adapters = adapters_file.adapters();
 
-    let (mut entries, failures) = register_adapters(&client, &adapters).await;
+    let (mut entries, failures) = register_adapters(&client, adapters).await;
 
     // Partial-failure policy: log every failure at ERROR with structured
     // fields, then continue with the working subset. The publisher does
@@ -119,9 +119,9 @@ async fn main() {
     // than a tool that simply isn't there).
     for f in &failures {
         error!(
-            kind = ?f.kind,
-            descriptor = %f.descriptor,
-            error = %f.error,
+            kind = ?f.kind(),
+            descriptor = %f.descriptor(),
+            error = %f.error(),
             "adapter registration failed; skipping"
         );
     }
@@ -156,7 +156,7 @@ async fn main() {
                 .collect()
         };
         for cap in discovered {
-            if let Some(source) = with_response_schemas(&client, &cap).await {
+            if let Some(source) = source_with_response_schemas(&client, &cap).await {
                 entries.push(source);
                 info!(capability = %cap, "adapter registered via discovery broker");
             }
@@ -222,199 +222,6 @@ fn check_legacy_wallet() -> Result<(), ferridis_client::ClientError> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let legacy = format!("{home}/.ferridis/wallet.json");
     Wallet::detect_legacy_plaintext(&legacy)
-}
-
-/// Which adapter kind a registration failure belongs to. Reported in
-/// structured logs so operators can grep `kind=McpStdio` to find e.g.
-/// failing local MCP processes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AdapterKind {
-    Native,
-    McpSse,
-    McpStdio,
-}
-
-/// One adapter that failed to register. The publisher logs and skips —
-/// it does not exit. See [`register_adapters`] for the partial-failure
-/// contract.
-#[derive(Debug)]
-struct AdapterRegistrationFailure {
-    kind: AdapterKind,
-    /// Best-effort identifier for the failed adapter — the capability
-    /// ref for Native, the SSE URL for SSE, the stdio command for stdio.
-    descriptor: String,
-    /// Human-readable error from the underlying library (`ClientError`,
-    /// `url::ParseError`, `ferridis_core::FerridisError`, etc.).
-    error: String,
-}
-
-/// Maximum wall-clock time the publisher waits for any single adapter
-/// to register at startup before giving up and marking it failed.
-///
-/// Chosen to be comfortably longer than `ferridis_protocol`'s
-/// connect-timeout (5s) but short enough that a publisher with one
-/// stalled adapter still becomes responsive within a UI-acceptable
-/// window. A slow-failing adapter is indistinguishable from a hung one
-/// from the host's perspective.
-const ADAPTER_REGISTRATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// Register every adapter in `adapters` independently, never aborting
-/// on a single failure.
-///
-/// Each adapter is bounded by [`ADAPTER_REGISTRATION_TIMEOUT`] so one
-/// unreachable host on a routable-but-dead subnet cannot stall startup
-/// past the OS's default TCP connect window (which can be minutes on
-/// Linux). Timeout is reported as a regular registration failure.
-///
-/// Returns the successfully-registered entries paired with structured
-/// failure records for any that did not register. Callers should log
-/// the failures and proceed with the entry list — even an empty list
-/// is acceptable (the publisher will respond to `tools/list` with no
-/// tools rather than refuse to start).
-async fn register_adapters(
-    client: &Client,
-    adapters: &[AdapterConfig],
-) -> (Vec<CatalogueSource>, Vec<AdapterRegistrationFailure>) {
-    let mut entries = Vec::with_capacity(adapters.len());
-    let mut failures = Vec::new();
-    for a in adapters {
-        let (kind, descriptor, result) = match a {
-            AdapterConfig::Native {
-                capability,
-                manifest_url,
-                base_url,
-            } => (
-                AdapterKind::Native,
-                capability.clone(),
-                with_timeout(register_native(client, capability, manifest_url, base_url)).await,
-            ),
-            AdapterConfig::McpSse { mcp_sse_url } => (
-                AdapterKind::McpSse,
-                mcp_sse_url.clone(),
-                with_timeout(register_mcp_sse(client, mcp_sse_url)).await,
-            ),
-            AdapterConfig::McpStdio {
-                mcp_stdio_command,
-                mcp_stdio_args,
-                mcp_stdio_env,
-            } => (
-                AdapterKind::McpStdio,
-                mcp_stdio_command.clone(),
-                with_timeout(register_mcp_stdio(
-                    client,
-                    mcp_stdio_command,
-                    mcp_stdio_args,
-                    mcp_stdio_env,
-                ))
-                .await,
-            ),
-        };
-        match result {
-            Ok(entry) => entries.push(entry),
-            Err(error) => failures.push(AdapterRegistrationFailure {
-                kind,
-                descriptor,
-                error,
-            }),
-        }
-    }
-    (entries, failures)
-}
-
-async fn with_timeout<F>(fut: F) -> Result<CatalogueSource, String>
-where
-    F: std::future::Future<Output = Result<CatalogueSource, String>>,
-{
-    match tokio::time::timeout(ADAPTER_REGISTRATION_TIMEOUT, fut).await {
-        Ok(inner) => inner,
-        Err(_) => Err(format!(
-            "registration timed out after {:?}",
-            ADAPTER_REGISTRATION_TIMEOUT
-        )),
-    }
-}
-
-async fn register_native(
-    client: &Client,
-    capability: &str,
-    manifest_url: &str,
-    base_url: &str,
-) -> Result<CatalogueSource, String> {
-    let cap_ref =
-        CapabilityRef::parse(capability).map_err(|e| format!("capability {capability}: {e}"))?;
-    let manifest_url =
-        Url::parse(manifest_url).map_err(|e| format!("manifestUrl {manifest_url}: {e}"))?;
-    let base_url = Url::parse(base_url).map_err(|e| format!("baseUrl {base_url}: {e}"))?;
-    client
-        .register(cap_ref.clone(), manifest_url, base_url) // allow:clone — register takes ownership; the ref is still needed to look the record up
-        .await
-        .map_err(|e| format!("register native {capability}: {e}"))?;
-    with_response_schemas(client, &cap_ref)
-        .await
-        .ok_or_else(|| format!("registry missing record for {cap_ref} after native register"))
-}
-
-/// Load `capability`'s response schemas, then read back its catalogue
-/// source. Runs inside the caller's [`ADAPTER_REGISTRATION_TIMEOUT`] for
-/// configured adapters. A schema that cannot be loaded is logged inside
-/// `load_response_schemas` and only makes descriptions less specific, so
-/// it never fails registration. `None` means the record is missing.
-async fn with_response_schemas(
-    client: &Client,
-    capability: &CapabilityRef,
-) -> Option<CatalogueSource> {
-    match tokio::time::timeout(
-        ADAPTER_REGISTRATION_TIMEOUT,
-        client.load_response_schemas(capability),
-    )
-    .await
-    {
-        Ok(Ok(_outcome)) => {}
-        Ok(Err(e)) => warn!(capability = %capability, error = %e, "response schemas not loaded"),
-        Err(_) => warn!(
-            capability = %capability,
-            timeout = ?ADAPTER_REGISTRATION_TIMEOUT,
-            "response-schema load timed out; descriptions will omit the schema"
-        ),
-    }
-    lookup_registered_record(client, capability).await
-}
-
-async fn register_mcp_sse(client: &Client, mcp_sse_url: &str) -> Result<CatalogueSource, String> {
-    let sse_url = Url::parse(mcp_sse_url).map_err(|e| format!("mcpSseUrl {mcp_sse_url}: {e}"))?;
-    let cap_ref = client
-        .register_mcp_sse(sse_url.clone())
-        .await
-        .map_err(|e| format!("register MCP SSE {sse_url}: {e}"))?;
-    lookup_registered_record(client, &cap_ref)
-        .await
-        .ok_or_else(|| format!("registry missing record for {cap_ref} after MCP register"))
-}
-
-async fn register_mcp_stdio(
-    client: &Client,
-    command: &str,
-    args: &[String],
-    env: &std::collections::HashMap<String, String>,
-) -> Result<CatalogueSource, String> {
-    let env_pairs: Vec<(String, String)> =
-        env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    let cap_ref = client
-        .register_mcp_stdio(command, args, &env_pairs)
-        .await
-        .map_err(|e| format!("register MCP stdio {command}: {e}"))?;
-    lookup_registered_record(client, &cap_ref)
-        .await
-        .ok_or_else(|| format!("registry missing record for {cap_ref} after MCP register"))
-}
-
-/// Everything the registry now knows about `capability`, as a catalogue source.
-async fn lookup_registered_record(
-    client: &Client,
-    capability: &CapabilityRef,
-) -> Option<CatalogueSource> {
-    let registry = client.registry().lock().await;
-    registry.get(capability).map(CatalogueSource::from_record)
 }
 
 #[derive(Debug)]

@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ferridis_core::{CapabilityRef, IntentKind, IntentVerb, Manifest};
+use ferridis_core::{CallerPolicy, CapabilityRef, IntentKind, IntentVerb, Manifest};
 use ferridis_protocol::{ResponseSchema, ResponseSchemas};
 use futures_util::{Stream, StreamExt};
 use serde::Serialize;
@@ -39,8 +39,31 @@ use crate::error::ClientError;
 use crate::registry::CapabilityRecord;
 
 /// A tool's name: unique per (manifest id, intent) and a plain identifier.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ToolName(String);
+
+/// The longest tool name the Messages API and MCP clients accept.
+const TOOL_NAME_MAX_LEN: usize = 128;
+
+/// Why a string is not a tool name.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ToolNameError {
+    /// The string is empty.
+    #[error("empty")]
+    Empty,
+    /// The string is longer than the API accepts.
+    #[error("{len} characters, longer than {TOOL_NAME_MAX_LEN}")]
+    TooLong {
+        /// Its length.
+        len: usize,
+    },
+    /// The string contains a character outside `[A-Za-z0-9_-]`.
+    #[error("character {found:?} is outside [A-Za-z0-9_-]")]
+    InvalidCharacter {
+        /// The first offending character.
+        found: char,
+    },
+}
 
 impl ToolName {
     /// The name for `intent` on the capability whose manifest id is `manifest_id`.
@@ -49,6 +72,31 @@ impl ToolName {
         let id = manifest_id.replace(['.', '-'], "_");
         let verb = intent.as_str().replace('-', "_");
         Self(format!("ferridis_{id}_{verb}"))
+    }
+
+    /// Parse a name an operator wrote, such as an adapters.json
+    /// `callers` key. Accepts what the Messages API accepts for a tool
+    /// name; whether it matches a registered tool is checked later, where
+    /// the catalogue is known.
+    ///
+    /// # Errors
+    ///
+    /// [`ToolNameError`] naming what is wrong.
+    pub fn parse(raw: &str) -> Result<Self, ToolNameError> {
+        if raw.is_empty() {
+            return Err(ToolNameError::Empty);
+        }
+        let len = raw.chars().count();
+        if len > TOOL_NAME_MAX_LEN {
+            return Err(ToolNameError::TooLong { len });
+        }
+        if let Some(found) = raw
+            .chars()
+            .find(|c| !(c.is_ascii_alphanumeric() || *c == '_' || *c == '-'))
+        {
+            return Err(ToolNameError::InvalidCharacter { found });
+        }
+        Ok(Self(raw.to_owned()))
     }
 
     /// Borrow the name.
@@ -151,9 +199,17 @@ pub struct CatalogueEntry {
     kind: IntentKind,
     description: ToolDescription,
     input_schema: Value,
+    declared_callers: Option<CallerPolicy>,
 }
 
 impl CatalogueEntry {
+    /// The publisher's caller declaration for this intent (decision
+    /// PTC-1), or `None` when the manifest declares none.
+    #[must_use]
+    pub fn declared_callers(&self) -> Option<CallerPolicy> {
+        self.declared_callers
+    }
+
     /// The tool's name.
     #[must_use]
     pub fn name(&self) -> &ToolName {
@@ -234,6 +290,7 @@ impl Catalogue {
                     kind,
                     description,
                     input_schema,
+                    declared_callers: source.manifest.declared_callers(intent),
                 });
             }
         }
@@ -470,6 +527,40 @@ mod tests {
             ToolName::for_intent("ferridis.fs.v1", &verb("read-file")).as_str(),
             "ferridis_ferridis_fs_v1_read_file"
         );
+    }
+
+    #[test]
+    fn tool_name_parse_accepts_what_for_intent_produces_and_rejects_the_rest() {
+        let made = ToolName::for_intent("mcp.ha-mcp.v1", &verb("list-dir"));
+        assert_eq!(ToolName::parse(made.as_str()), Ok(made));
+        assert_eq!(ToolName::parse(""), Err(ToolNameError::Empty));
+        assert_eq!(
+            ToolName::parse("list dir"),
+            Err(ToolNameError::InvalidCharacter { found: ' ' })
+        );
+        assert_eq!(
+            ToolName::parse(&"a".repeat(129)),
+            Err(ToolNameError::TooLong { len: 129 })
+        );
+    }
+
+    /// PTC-1: the publisher's declaration reaches the catalogue entry.
+    #[test]
+    fn entries_carry_the_manifests_caller_declaration() {
+        let cat = Catalogue::from_sources(&[CatalogueSource::new(
+            fs_cap(),
+            fs_manifest(r#"[{ "verb": "list-dir", "callers": "code" }, "read-file"]"#),
+        )]);
+        let callers = |name: &str| {
+            cat.resolve(name)
+                .expect("tool is catalogued")
+                .declared_callers()
+        };
+        assert_eq!(
+            callers("ferridis_ferridis_fs_v1_list_dir"),
+            Some(CallerPolicy::Code)
+        );
+        assert_eq!(callers("ferridis_ferridis_fs_v1_read_file"), None);
     }
 
     #[test]

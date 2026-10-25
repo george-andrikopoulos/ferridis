@@ -32,6 +32,7 @@ use ferridis_protocol::{
 use futures_util::Stream;
 use reqwest::Method;
 use tokio::sync::Mutex;
+use tracing::Instrument;
 use url::Url;
 
 use crate::error::ClientError;
@@ -325,6 +326,52 @@ impl Client {
     /// - [`ClientError::InvalidArgs`] if the body fails the
     ///   declared input schema.
     ///
+    /// [`Self::dispatch`], with `origin` recorded on its tier-used
+    /// telemetry.
+    ///
+    /// The dispatch runs inside a `ferridis_dispatch` span carrying
+    /// `caller = origin`, so every tier-used event it emits, on the native
+    /// and the MCP path alike, names who asked for the call.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::dispatch`].
+    pub async fn dispatch_from(
+        &self,
+        origin: CallOrigin,
+        capability: &CapabilityRef,
+        intent: IntentVerb,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.dispatch(capability, intent, body)
+            .instrument(tracing::info_span!("ferridis_dispatch", caller = %origin))
+            .await
+    }
+
+    /// [`Self::dispatch_streaming`], with `origin` recorded on its
+    /// tier-used telemetry (see [`Self::dispatch_from`]). The span covers
+    /// stream setup, where the tier-used event is emitted.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::dispatch_streaming`].
+    pub async fn dispatch_streaming_from(
+        &self,
+        origin: CallOrigin,
+        capability: &CapabilityRef,
+        intent: IntentVerb,
+        body: serde_json::Value,
+    ) -> Result<
+        std::pin::Pin<
+            Box<dyn futures_util::Stream<Item = Result<serde_json::Value, ClientError>> + Send>,
+        >,
+        ClientError,
+    > {
+        self.dispatch_streaming(capability, intent, body)
+            .instrument(tracing::info_span!("ferridis_dispatch", caller = %origin))
+            .await
+    }
+
     /// `auth: Oauth2` is supported for streamed intents and adds a
     /// bearer header to the SSE request.
     pub async fn dispatch_streaming(
@@ -1140,6 +1187,29 @@ fn base_relative_url(base_url: &Url, relative: &str) -> Result<Url, ClientError>
     };
     base.join(relative)
         .map_err(|e| ClientError::InvalidUrl(format!("{base_url}: {e}")))
+}
+
+/// Who asked for a dispatch. Recorded on the tier-used telemetry by
+/// [`Client::dispatch_from`] and [`Client::dispatch_streaming_from`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CallOrigin {
+    /// The embedding host itself, not a model.
+    Host,
+    /// A model calling the tool directly.
+    ModelDirect,
+    /// Code a model runs in its code-execution container (programmatic
+    /// tool calling).
+    ModelCode,
+}
+
+impl std::fmt::Display for CallOrigin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Host => "host",
+            Self::ModelDirect => "model-direct",
+            Self::ModelCode => "model-code",
+        })
+    }
 }
 
 /// What [`Client::load_response_schemas`] found.

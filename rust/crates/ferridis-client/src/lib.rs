@@ -63,6 +63,7 @@
 // same rationale as in `ferridis-protocol`.
 #![allow(clippy::result_large_err)]
 
+pub mod adapters;
 pub mod catalogue;
 pub mod client;
 pub mod discovery;
@@ -72,7 +73,7 @@ pub mod registry;
 pub mod wallet;
 pub mod wallet_store;
 
-pub use client::{Client, ResponseSchemaLoad, SchemaAttempt, SchemaFetchFailure};
+pub use client::{CallOrigin, Client, ResponseSchemaLoad, SchemaAttempt, SchemaFetchFailure};
 pub use discovery::DiscoveryHandle;
 pub use error::ClientError;
 pub use ferridis_protocol::WsConnection;
