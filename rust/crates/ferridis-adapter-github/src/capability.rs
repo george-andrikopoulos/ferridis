@@ -35,125 +35,186 @@ const DEFAULT_MANIFEST_JSON: &str = r#"{
     "auth": { "type": "none" }
 }"#;
 
-const EMBEDDED_SCHEMA: &str = r#"openapi: 3.0.3
-info:
-  title: Ferridis GitHub
-  version: 0.1.0
-paths:
-  /intents/list-repos:
-    post:
-      summary: List repositories for a user or organisation.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner]
-              properties:
-                owner:
-                  type: string
-                type:
-                  type: string
-                  enum: [all, public, private, forks, sources, member]
-                per_page:
-                  type: integer
-                  minimum: 1
-                  maximum: 100
-      responses:
-        '200': { description: OK }
-  /intents/get-file:
-    post:
-      summary: Read a file from a repository.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner, repo, path]
-              properties:
-                owner: { type: string }
-                repo:  { type: string }
-                path:  { type: string }
-                ref:   { type: string }
-      responses:
-        '200': { description: OK }
-  /intents/list-issues:
-    post:
-      summary: List issues for a repository.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner, repo]
-              properties:
-                owner: { type: string }
-                repo:  { type: string }
-                state:
-                  type: string
-                  enum: [open, closed, all]
-      responses:
-        '200': { description: OK }
-  /intents/create-issue:
-    post:
-      summary: Open a new issue in a repository.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner, repo, title]
-              properties:
-                owner:  { type: string }
-                repo:   { type: string }
-                title:  { type: string }
-                body:   { type: string }
-                labels:
-                  type: array
-                  items: { type: string }
-      responses:
-        '201': { description: Created }
-  /intents/list-pull-requests:
-    post:
-      summary: List pull requests for a repository.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner, repo]
-              properties:
-                owner: { type: string }
-                repo:  { type: string }
-                state:
-                  type: string
-                  enum: [open, closed, all]
-      responses:
-        '200': { description: OK }
-  /intents/search-code:
-    post:
-      summary: Search code across GitHub.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [query]
-              properties:
-                query:    { type: string }
-                per_page:
-                  type: integer
-                  minimum: 1
-                  maximum: 100
-      responses:
-        '200': { description: OK }
-"#;
+/// The embedded OpenAPI 3 document, served at `GET /schema`.
+///
+/// JSON rather than YAML so `ferridis-protocol::ResponseSchemas` can read
+/// it without a YAML dependency (decision PTC-2). Most intents pass the
+/// GitHub REST response through, so their response schemas document the
+/// stable fields and require only what the adapter can rely on. Each is
+/// pinned by a conformance assertion in `tests/github_adapter.rs`.
+const EMBEDDED_SCHEMA: &str = r#"{
+  "openapi": "3.0.3",
+  "info": { "title": "Ferridis GitHub", "version": "0.1.0" },
+  "paths": {
+    "/intents/list-repos": {
+      "post": {
+        "summary": "List repositories for a user or organisation.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["owner"],
+          "properties": {
+            "owner": { "type": "string" },
+            "type": { "type": "string", "enum": ["all", "public", "private", "forks", "sources", "member"] },
+            "per_page": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        } } } },
+        "responses": { "200": { "description": "GitHub repository objects, passed through.", "content": { "application/json": { "schema": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["name"],
+            "properties": {
+              "id": { "type": "integer" },
+              "name": { "type": "string" },
+              "full_name": { "type": "string", "description": "owner/name" },
+              "private": { "type": "boolean" },
+              "fork": { "type": "boolean" },
+              "description": { "type": ["string", "null"] },
+              "html_url": { "type": "string" },
+              "default_branch": { "type": "string" },
+              "updated_at": { "type": "string", "description": "RFC 3339 timestamp." }
+            }
+          }
+        } } } } }
+      }
+    },
+    "/intents/get-file": {
+      "post": {
+        "summary": "Read a UTF-8 file from a repository.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["owner", "repo", "path"],
+          "properties": {
+            "owner": { "type": "string" },
+            "repo": { "type": "string" },
+            "path": { "type": "string" },
+            "ref": { "type": "string", "description": "Branch, tag or commit; defaults to the default branch." }
+          }
+        } } } },
+        "responses": { "200": { "description": "The decoded file.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["path", "sha", "size", "content"],
+          "properties": {
+            "path": { "type": "string" },
+            "sha": { "type": "string" },
+            "size": { "type": "integer", "minimum": 0 },
+            "content": { "type": "string", "description": "Decoded UTF-8 text." }
+          }
+        } } } } }
+      }
+    },
+    "/intents/list-issues": {
+      "post": {
+        "summary": "List issues for a repository (GitHub includes pull requests here).",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["owner", "repo"],
+          "properties": {
+            "owner": { "type": "string" },
+            "repo": { "type": "string" },
+            "state": { "type": "string", "enum": ["open", "closed", "all"] }
+          }
+        } } } },
+        "responses": { "200": { "description": "GitHub issue objects, passed through (up to 30).", "content": { "application/json": { "schema": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["number", "title"],
+            "properties": {
+              "number": { "type": "integer" },
+              "title": { "type": "string" },
+              "state": { "type": "string", "enum": ["open", "closed"] },
+              "html_url": { "type": "string" },
+              "body": { "type": ["string", "null"] },
+              "user": { "type": "object", "properties": { "login": { "type": "string" } } },
+              "labels": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" } } } },
+              "pull_request": { "type": "object", "description": "Present only when the item is a pull request." }
+            }
+          }
+        } } } } }
+      }
+    },
+    "/intents/create-issue": {
+      "post": {
+        "summary": "Open a new issue in a repository.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["owner", "repo", "title"],
+          "properties": {
+            "owner": { "type": "string" },
+            "repo": { "type": "string" },
+            "title": { "type": "string" },
+            "body": { "type": "string" },
+            "labels": { "type": "array", "items": { "type": "string" } }
+          }
+        } } } },
+        "responses": { "200": { "description": "The created GitHub issue object, passed through.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["number", "title"],
+          "properties": {
+            "number": { "type": "integer" },
+            "title": { "type": "string" },
+            "state": { "type": "string" },
+            "html_url": { "type": "string" }
+          }
+        } } } } }
+      }
+    },
+    "/intents/list-pull-requests": {
+      "post": {
+        "summary": "List pull requests for a repository.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["owner", "repo"],
+          "properties": {
+            "owner": { "type": "string" },
+            "repo": { "type": "string" },
+            "state": { "type": "string", "enum": ["open", "closed", "all"] }
+          }
+        } } } },
+        "responses": { "200": { "description": "GitHub pull-request objects, passed through (up to 30).", "content": { "application/json": { "schema": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["number", "title"],
+            "properties": {
+              "number": { "type": "integer" },
+              "title": { "type": "string" },
+              "state": { "type": "string", "enum": ["open", "closed"] },
+              "draft": { "type": "boolean" },
+              "html_url": { "type": "string" },
+              "user": { "type": "object", "properties": { "login": { "type": "string" } } },
+              "head": { "type": "object", "properties": { "ref": { "type": "string" } } },
+              "base": { "type": "object", "properties": { "ref": { "type": "string" } } }
+            }
+          }
+        } } } } }
+      }
+    },
+    "/intents/search-code": {
+      "post": {
+        "summary": "Search code across GitHub.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["query"],
+          "properties": {
+            "query": { "type": "string", "description": "GitHub code-search syntax." },
+            "per_page": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        } } } },
+        "responses": { "200": { "description": "GitHub code-search result, passed through.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["total_count", "items"],
+          "properties": {
+            "total_count": { "type": "integer" },
+            "incomplete_results": { "type": "boolean" },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["name", "path"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "path": { "type": "string" },
+                  "sha": { "type": "string" },
+                  "html_url": { "type": "string" },
+                  "repository": { "type": "object", "properties": { "full_name": { "type": "string" } } }
+                }
+              }
+            }
+          }
+        } } } } }
+      }
+    }
+  }
+}"#;
 
 // ---------------------------------------------------------------------------
 // Input argument types (Parse, Don't Validate — TDP Pattern 2)
@@ -245,7 +306,7 @@ impl Capability for GitHubCapability {
 
     fn schema(&self) -> SchemaSource {
         SchemaSource::Embedded {
-            content_type: "application/yaml".into(),
+            content_type: "application/json".into(),
             body: EMBEDDED_SCHEMA.into(),
         }
     }

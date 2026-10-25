@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use ferridis_client::Client;
-use ferridis_core::{CapabilityRef, IntentVerb};
+use ferridis_client::catalogue::{CatalogueEntry, collect_stream};
+use ferridis_core::IntentKind;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tracing::{error, info, warn};
@@ -173,7 +174,7 @@ impl Server {
             }
         };
 
-        let Some((capability, intent)) = self.catalogue.resolve(&call.name).cloned() else {
+        let Some(entry) = self.catalogue.resolve(&call.name) else {
             return Response::error(
                 id,
                 codes::METHOD_NOT_FOUND,
@@ -183,12 +184,12 @@ impl Server {
 
         info!(
             tool = %call.name,
-            capability = %capability,
-            intent = %intent,
+            capability = %entry.capability(),
+            intent = %entry.intent(),
             "tools/call dispatch"
         );
 
-        match self.dispatch(&capability, intent, call.arguments).await {
+        match self.dispatch(entry, call.arguments).await {
             Ok(body) => {
                 let text = serde_json::to_string_pretty(&body).unwrap_or_else(|_| body.to_string());
                 let result = ToolsCallResult {
@@ -221,10 +222,11 @@ impl Server {
 
     async fn dispatch(
         &self,
-        capability: &CapabilityRef,
-        intent: IntentVerb,
+        entry: &CatalogueEntry,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, ferridis_client::ClientError> {
+        let capability = entry.capability();
+        let intent = entry.intent().clone(); // allow:clone — dispatch takes the verb by value; the catalogue keeps its own
         // Normalize: MCP `arguments` may be omitted; pass through as `null`
         // turned into an empty object so adapters that expect an object
         // shape don't reject.
@@ -236,82 +238,18 @@ impl Server {
 
         // Branch by intent kind: MCP 2024-11-05 has no progressive
         // streaming on `tools/call`, so stream-kind intents are
-        // collected here and surfaced as a single response. The
-        // primary text content is the final `result.result` field
-        // when the upstream adapter emits one (the shape the
-        // Claude-CLI adapter follows); chunks beyond that are
-        // bundled as JSON so a structured-aware client can inspect
-        // them. When MCP gains notifications-as-chunks, this is the
-        // call site that grows progressive forwarding.
-        let kind = {
-            let registry = self.client.registry().lock().await;
-            registry
-                .get(capability)
-                .map(|r| r.manifest().intent_kind(&intent))
-                .unwrap_or(ferridis_core::IntentKind::Request)
-        };
-
-        match kind {
-            ferridis_core::IntentKind::Request => {
-                self.client.dispatch(capability, intent, body).await
-            }
-            ferridis_core::IntentKind::Stream => {
-                use futures_util::StreamExt;
-                let mut stream = self
+        // collected into the shared `CollectedStream` envelope (the
+        // shape every stream-kind tool description advertises). When
+        // MCP gains notifications-as-chunks, this is the call site that
+        // grows progressive forwarding.
+        match entry.kind() {
+            IntentKind::Request => self.client.dispatch(capability, intent, body).await,
+            IntentKind::Stream => {
+                let stream = self
                     .client
                     .dispatch_streaming(capability, intent, body)
                     .await?;
-                let mut chunks: Vec<serde_json::Value> = Vec::new();
-                while let Some(item) = stream.next().await {
-                    chunks.push(item?);
-                }
-                // Pick the most useful "primary" text: the last
-                // chunk's `result.result` if any, else the
-                // concatenated assistant text, else fall back to
-                // the chunk-count summary.
-                let final_text = chunks
-                    .iter()
-                    .rev()
-                    .find_map(|c| {
-                        if c.get("type")? == "result" {
-                            c.get("result")?.as_str().map(str::to_string)
-                        } else {
-                            None
-                        }
-                    })
-                    .or_else(|| {
-                        let mut acc = String::new();
-                        for c in &chunks {
-                            if c.get("type") != Some(&serde_json::Value::String("assistant".into()))
-                            {
-                                continue;
-                            }
-                            if let Some(content) =
-                                c.pointer("/message/content").and_then(|v| v.as_array())
-                            {
-                                for part in content {
-                                    if part.get("type")
-                                        == Some(&serde_json::Value::String("text".into()))
-                                        && let Some(t) = part.get("text").and_then(|v| v.as_str())
-                                    {
-                                        acc.push_str(t);
-                                    }
-                                }
-                            }
-                        }
-                        if acc.is_empty() { None } else { Some(acc) }
-                    })
-                    .unwrap_or_else(|| {
-                        format!(
-                            "(stream produced {} chunks with no result text)",
-                            chunks.len()
-                        )
-                    });
-
-                Ok(serde_json::json!({
-                    "result": final_text,
-                    "chunks": chunks,
-                }))
+                Ok(collect_stream(stream).await?.into_json())
             }
         }
     }

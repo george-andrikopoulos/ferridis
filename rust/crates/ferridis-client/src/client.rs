@@ -25,9 +25,9 @@ use std::sync::Arc;
 
 use ferridis_core::{AuthMethod, CapabilityRef, IntentVerb, Manifest, StoredConnection};
 use ferridis_protocol::{
-    CallRequest, CallResponse, Client as HttpClient, FederatedMesh, MeshClient, ServerEvent,
-    TrustRoot, WsConnection, call as call_authed, call_anonymous, connect_ws, fetch_manifest,
-    subscribe as protocol_subscribe,
+    CallRequest, CallResponse, Client as HttpClient, FederatedMesh, MeshClient, OpenApiError,
+    ResponseSchemas, ServerEvent, TrustRoot, WsConnection, call as call_authed, call_anonymous,
+    connect_ws, fetch_manifest, subscribe as protocol_subscribe,
 };
 use futures_util::Stream;
 use reqwest::Method;
@@ -110,6 +110,87 @@ impl Client {
             "registered capability with personal-tier registry"
         );
         Ok(manifest)
+    }
+
+    /// Read per-intent response schemas from `capability`'s OpenAPI
+    /// document and attach them to its registry record.
+    ///
+    /// Registration never calls this. Schemas stay lazy (resolved
+    /// friction #1), and only callers that must describe every tool up
+    /// front, such as a tool catalogue, opt in.
+    ///
+    /// Candidates, in order (decision PTC-2 and its refinement in
+    /// `architecture.md`):
+    ///
+    /// 1. `{base_url}/schema`, the route `ferridis-adapter-sdk` serves for
+    ///    every adapter. It matches the running adapter's version.
+    /// 2. The manifest's `schema_url`.
+    ///
+    /// A failed candidate is not an error. The outcome lists each attempt
+    /// and its failure, and each one is logged at WARN, because a missing
+    /// response schema only makes a tool description less specific.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::CapabilityNotRegistered`] if `capability` is unknown.
+    pub async fn load_response_schemas(
+        &self,
+        capability: &CapabilityRef,
+    ) -> Result<ResponseSchemaLoad, ClientError> {
+        let candidates: Vec<Url> = {
+            let registry = self.registry.lock().await;
+            let record = registry
+                .get(capability)
+                .ok_or_else(|| ClientError::CapabilityNotRegistered(capability.clone()))?; // allow:clone — the error variant owns the ref it names; only on the failure path
+            let base_url = match record.backend() {
+                crate::registry::CapabilityBackend::Native { base_url } => base_url,
+                crate::registry::CapabilityBackend::Mcp { .. } => {
+                    return Ok(ResponseSchemaLoad::NotApplicable);
+                }
+            };
+            let mut candidates = Vec::with_capacity(2);
+            match base_relative_url(base_url, "schema") {
+                Ok(url) => candidates.push(url),
+                Err(e) => {
+                    tracing::warn!(capability = %capability, error = %e, "cannot build adapter /schema URL")
+                }
+            }
+            let declared = record.manifest().schema_url();
+            if !candidates.contains(declared) {
+                candidates.push(declared.clone()); // allow:clone — the URL must outlive the registry lock released at the end of this block
+            }
+            candidates
+        };
+
+        let mut attempts = Vec::with_capacity(candidates.len());
+        for url in candidates {
+            let parsed = match ferridis_protocol::fetch_schema(&self.http, &url).await {
+                Ok(bytes) => ResponseSchemas::from_openapi_json(bytes.body())
+                    .map_err(SchemaFetchFailure::Parse),
+                Err(e) => Err(SchemaFetchFailure::Fetch(Box::new(e))),
+            };
+            match parsed {
+                Ok(schemas) => {
+                    let intents = schemas.len();
+                    self.registry
+                        .lock()
+                        .await
+                        .set_response_schemas(capability, schemas)?;
+                    tracing::info!(capability = %capability, from = %url, intents, "loaded response schemas");
+                    return Ok(ResponseSchemaLoad::Loaded { from: url, intents });
+                }
+                Err(failure) => {
+                    tracing::warn!(
+                        capability = %capability,
+                        url = %url,
+                        error = %failure,
+                        "response-schema candidate failed; tool descriptions will omit the schema unless a later candidate succeeds"
+                    );
+                    attempts.push(SchemaAttempt { url, failure });
+                }
+            }
+        }
+        Ok(ResponseSchemaLoad::NoneFound { attempts })
     }
 
     /// Capabilities whose cached manifest declares `intent`.
@@ -1042,17 +1123,78 @@ fn http_url_to_ws(base_url: &Url, channel: &str) -> Result<Url, ClientError> {
 /// Convention: `{base_url}/intents/{verb}`. Trailing slashes on
 /// `base_url` are handled by [`Url::join`].
 fn build_intent_url(base_url: &Url, intent: &IntentVerb) -> Result<Url, ClientError> {
+    base_relative_url(base_url, &format!("intents/{}", intent.as_str()))
+}
+
+/// Join `relative` under `base_url`, treating the base as a directory
+/// whether or not it ends in `/`.
+fn base_relative_url(base_url: &Url, relative: &str) -> Result<Url, ClientError> {
     // Ensure the base URL has a trailing slash so `Url::join` appends
     // rather than replacing the final segment.
     let base = if base_url.path().ends_with('/') {
-        base_url.clone()
+        base_url.clone() // allow:clone — join needs an owned base in both branches; one URL per call
     } else {
-        let mut b = base_url.clone();
+        let mut b = base_url.clone(); // allow:clone — mutated to add the trailing slash; the caller's URL stays untouched
         b.set_path(&format!("{}/", b.path()));
         b
     };
-    base.join(&format!("intents/{}", intent.as_str()))
+    base.join(relative)
         .map_err(|e| ClientError::InvalidUrl(format!("{base_url}: {e}")))
+}
+
+/// What [`Client::load_response_schemas`] found.
+#[must_use]
+#[derive(Debug)]
+pub enum ResponseSchemaLoad {
+    /// A document parsed, and its schemas are now on the registry record.
+    /// `intents` can be zero: the document parsed but declares no JSON
+    /// response schema.
+    Loaded {
+        /// The document's URL.
+        from: Url,
+        /// How many intents gained a response schema.
+        intents: usize,
+    },
+    /// Every candidate failed. The record is unchanged.
+    NoneFound {
+        /// One entry per candidate, in the order tried.
+        attempts: Vec<SchemaAttempt>,
+    },
+    /// MCP-backed capability. There is no OpenAPI document, and MCP
+    /// 2024-11-05 carries no `outputSchema`.
+    NotApplicable,
+}
+
+/// One failed candidate in [`ResponseSchemaLoad::NoneFound`].
+#[derive(Debug)]
+pub struct SchemaAttempt {
+    url: Url,
+    failure: SchemaFetchFailure,
+}
+
+impl SchemaAttempt {
+    /// The candidate URL.
+    #[must_use]
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    /// Why it failed.
+    #[must_use]
+    pub fn failure(&self) -> &SchemaFetchFailure {
+        &self.failure
+    }
+}
+
+/// Why one response-schema candidate failed.
+#[derive(Debug, thiserror::Error)]
+pub enum SchemaFetchFailure {
+    /// The document could not be fetched.
+    #[error("fetch failed: {0}")]
+    Fetch(#[source] Box<ferridis_protocol::ProtocolError>),
+    /// The document was fetched but is not an OpenAPI 3 JSON document.
+    #[error("not readable: {0}")]
+    Parse(#[source] OpenApiError),
 }
 
 #[cfg(test)]

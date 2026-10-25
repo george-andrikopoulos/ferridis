@@ -55,7 +55,8 @@ use url::Url;
 
 use crate::config::AdapterConfig;
 use crate::server::Server;
-use crate::tools::{AdapterEntry, ToolCatalogue};
+use crate::tools::ToolCatalogue;
+use ferridis_client::catalogue::{Catalogue, CatalogueSource};
 
 #[tokio::main]
 async fn main() {
@@ -140,23 +141,24 @@ async fn main() {
     let _broker_handle: Option<DiscoveryHandle> = if let Some(broker_url) = args.discovery_broker {
         info!(broker_url = %broker_url, "fetching discovery broker snapshot");
         let known: std::collections::HashSet<CapabilityRef> =
-            entries.iter().map(|e| e.capability.clone()).collect(); // clone: build dedup set
+            entries.iter().map(|e| e.capability().clone()).collect(); // clone: build dedup set
         let handle = client.discover_broker(broker_url).await;
         // Snapshot is synchronously registered — scan for new capabilities.
-        {
+        // Collected under the lock, then released: loading response
+        // schemas fetches over the network and takes the lock itself.
+        let discovered: Vec<CapabilityRef> = {
             let registry = client.registry().lock().await;
-            for rec in registry.iter() {
-                if !known.contains(rec.capability()) {
-                    entries.push(AdapterEntry {
-                        capability: rec.capability().clone(), // clone: owned by AdapterEntry
-                        manifest: rec.manifest().clone(),     // clone: owned by AdapterEntry
-                        input_schemas: rec.input_schemas().cloned(),
-                    });
-                    info!(
-                        capability = %rec.capability(),
-                        "adapter registered via discovery broker"
-                    );
-                }
+            registry
+                .iter()
+                .map(|rec| rec.capability())
+                .filter(|cap| !known.contains(*cap))
+                .cloned()
+                .collect()
+        };
+        for cap in discovered {
+            if let Some(source) = with_response_schemas(&client, &cap).await {
+                entries.push(source);
+                info!(capability = %cap, "adapter registered via discovery broker");
             }
         }
         Some(handle)
@@ -169,15 +171,15 @@ async fn main() {
     } else {
         for e in &entries {
             info!(
-                capability = %e.capability,
-                id = %e.manifest.id(),
-                intents = ?e.manifest.intents().iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>(),
+                capability = %e.capability(),
+                id = %e.manifest().id(),
+                intents = ?e.manifest().intents().iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>(),
                 "adapter registered"
             );
         }
     }
 
-    let catalogue = ToolCatalogue::from_adapters(&entries);
+    let catalogue = ToolCatalogue::new(Catalogue::from_sources(&entries));
     let server = Arc::new(Server::new(client, catalogue));
 
     match args.transport {
@@ -272,7 +274,7 @@ const ADAPTER_REGISTRATION_TIMEOUT: std::time::Duration = std::time::Duration::f
 async fn register_adapters(
     client: &Client,
     adapters: &[AdapterConfig],
-) -> (Vec<AdapterEntry>, Vec<AdapterRegistrationFailure>) {
+) -> (Vec<CatalogueSource>, Vec<AdapterRegistrationFailure>) {
     let mut entries = Vec::with_capacity(adapters.len());
     let mut failures = Vec::new();
     for a in adapters {
@@ -319,9 +321,9 @@ async fn register_adapters(
     (entries, failures)
 }
 
-async fn with_timeout<F>(fut: F) -> Result<AdapterEntry, String>
+async fn with_timeout<F>(fut: F) -> Result<CatalogueSource, String>
 where
-    F: std::future::Future<Output = Result<AdapterEntry, String>>,
+    F: std::future::Future<Output = Result<CatalogueSource, String>>,
 {
     match tokio::time::timeout(ADAPTER_REGISTRATION_TIMEOUT, fut).await {
         Ok(inner) => inner,
@@ -337,37 +339,56 @@ async fn register_native(
     capability: &str,
     manifest_url: &str,
     base_url: &str,
-) -> Result<AdapterEntry, String> {
+) -> Result<CatalogueSource, String> {
     let cap_ref =
         CapabilityRef::parse(capability).map_err(|e| format!("capability {capability}: {e}"))?;
     let manifest_url =
         Url::parse(manifest_url).map_err(|e| format!("manifestUrl {manifest_url}: {e}"))?;
     let base_url = Url::parse(base_url).map_err(|e| format!("baseUrl {base_url}: {e}"))?;
-    let manifest = client
-        .register(cap_ref.clone(), manifest_url, base_url)
+    client
+        .register(cap_ref.clone(), manifest_url, base_url) // allow:clone — register takes ownership; the ref is still needed to look the record up
         .await
         .map_err(|e| format!("register native {capability}: {e}"))?;
-    Ok(AdapterEntry {
-        capability: cap_ref,
-        manifest,
-        input_schemas: None,
-    })
+    with_response_schemas(client, &cap_ref)
+        .await
+        .ok_or_else(|| format!("registry missing record for {cap_ref} after native register"))
 }
 
-async fn register_mcp_sse(client: &Client, mcp_sse_url: &str) -> Result<AdapterEntry, String> {
+/// Load `capability`'s response schemas, then read back its catalogue
+/// source. Runs inside the caller's [`ADAPTER_REGISTRATION_TIMEOUT`] for
+/// configured adapters. A schema that cannot be loaded is logged inside
+/// `load_response_schemas` and only makes descriptions less specific, so
+/// it never fails registration. `None` means the record is missing.
+async fn with_response_schemas(
+    client: &Client,
+    capability: &CapabilityRef,
+) -> Option<CatalogueSource> {
+    match tokio::time::timeout(
+        ADAPTER_REGISTRATION_TIMEOUT,
+        client.load_response_schemas(capability),
+    )
+    .await
+    {
+        Ok(Ok(_outcome)) => {}
+        Ok(Err(e)) => warn!(capability = %capability, error = %e, "response schemas not loaded"),
+        Err(_) => warn!(
+            capability = %capability,
+            timeout = ?ADAPTER_REGISTRATION_TIMEOUT,
+            "response-schema load timed out; descriptions will omit the schema"
+        ),
+    }
+    lookup_registered_record(client, capability).await
+}
+
+async fn register_mcp_sse(client: &Client, mcp_sse_url: &str) -> Result<CatalogueSource, String> {
     let sse_url = Url::parse(mcp_sse_url).map_err(|e| format!("mcpSseUrl {mcp_sse_url}: {e}"))?;
     let cap_ref = client
         .register_mcp_sse(sse_url.clone())
         .await
         .map_err(|e| format!("register MCP SSE {sse_url}: {e}"))?;
-    let (manifest, input_schemas) = lookup_registered_record(client, &cap_ref)
+    lookup_registered_record(client, &cap_ref)
         .await
-        .ok_or_else(|| format!("registry missing record for {cap_ref} after MCP register"))?;
-    Ok(AdapterEntry {
-        capability: cap_ref,
-        manifest,
-        input_schemas,
-    })
+        .ok_or_else(|| format!("registry missing record for {cap_ref} after MCP register"))
 }
 
 async fn register_mcp_stdio(
@@ -375,33 +396,25 @@ async fn register_mcp_stdio(
     command: &str,
     args: &[String],
     env: &std::collections::HashMap<String, String>,
-) -> Result<AdapterEntry, String> {
+) -> Result<CatalogueSource, String> {
     let env_pairs: Vec<(String, String)> =
         env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let cap_ref = client
         .register_mcp_stdio(command, args, &env_pairs)
         .await
         .map_err(|e| format!("register MCP stdio {command}: {e}"))?;
-    let (manifest, input_schemas) = lookup_registered_record(client, &cap_ref)
+    lookup_registered_record(client, &cap_ref)
         .await
-        .ok_or_else(|| format!("registry missing record for {cap_ref} after MCP register"))?;
-    Ok(AdapterEntry {
-        capability: cap_ref,
-        manifest,
-        input_schemas,
-    })
+        .ok_or_else(|| format!("registry missing record for {cap_ref} after MCP register"))
 }
 
-type SchemaMap =
-    std::sync::Arc<std::collections::HashMap<ferridis_core::IntentVerb, serde_json::Value>>;
-
+/// Everything the registry now knows about `capability`, as a catalogue source.
 async fn lookup_registered_record(
     client: &Client,
     capability: &CapabilityRef,
-) -> Option<(ferridis_core::Manifest, Option<SchemaMap>)> {
+) -> Option<CatalogueSource> {
     let registry = client.registry().lock().await;
-    let rec = registry.get(capability)?;
-    Some((rec.manifest().clone(), rec.input_schemas().cloned()))
+    registry.get(capability).map(CatalogueSource::from_record)
 }
 
 #[derive(Debug)]

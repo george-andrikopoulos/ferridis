@@ -30,121 +30,173 @@ const DEFAULT_MANIFEST_JSON: &str = r#"{
     "auth": { "type": "none" }
 }"#;
 
-const EMBEDDED_SCHEMA: &str = r#"openapi: 3.0.3
-info:
-  title: Ferridis Slack
-  version: 0.1.0
-paths:
-  /intents/list-channels:
-    post:
-      summary: List channels the bot has access to.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                limit:
-                  type: integer
-                exclude_archived:
-                  type: boolean
-      responses:
-        "200":
-          description: Slack conversations.list response.
-
-  /intents/post-message:
-    post:
-      summary: Post a message to a channel.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [channel, text]
-              properties:
-                channel:
-                  type: string
-                  description: Channel ID or name.
-                text:
-                  type: string
-      responses:
-        "200":
-          description: Slack chat.postMessage response.
-
-  /intents/get-messages:
-    post:
-      summary: Fetch recent messages from a channel.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [channel]
-              properties:
-                channel:
-                  type: string
-                limit:
-                  type: integer
-      responses:
-        "200":
-          description: Slack conversations.history response.
-
-  /intents/send-dm:
-    post:
-      summary: Send a direct message to a user.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [user_id, text]
-              properties:
-                user_id:
-                  type: string
-                  description: Slack user ID (e.g. U01234ABCDE).
-                text:
-                  type: string
-      responses:
-        "200":
-          description: Slack chat.postMessage response for the DM.
-
-  /intents/get-channel-info:
-    post:
-      summary: Get metadata about a channel.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [channel]
-              properties:
-                channel:
-                  type: string
-      responses:
-        "200":
-          description: Slack conversations.info response.
-
-  /intents/list-users:
-    post:
-      summary: List workspace members.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                limit:
-                  type: integer
-      responses:
-        "200":
-          description: Slack users.list response.
-"#;
+/// The embedded OpenAPI 3 document, served at `GET /schema`.
+///
+/// JSON rather than YAML so `ferridis-protocol::ResponseSchemas` can read
+/// it without a YAML dependency (decision PTC-2). Every intent passes the
+/// Slack Web API envelope through (`ok` is always `true` on success; the
+/// client turns `ok: false` into an error), so the response schemas
+/// document that envelope's stable fields. Each is pinned by a
+/// conformance assertion in `tests/slack_adapter.rs`.
+const EMBEDDED_SCHEMA: &str = r#"{
+  "openapi": "3.0.3",
+  "info": { "title": "Ferridis Slack", "version": "0.1.0" },
+  "paths": {
+    "/intents/list-channels": {
+      "post": {
+        "summary": "List channels the bot has access to.",
+        "requestBody": { "required": false, "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": { "limit": { "type": "integer" }, "exclude_archived": { "type": "boolean" } }
+        } } } },
+        "responses": { "200": { "description": "Slack conversations.list response.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok", "channels"],
+          "properties": {
+            "ok": { "type": "boolean", "const": true },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["id"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "is_private": { "type": "boolean" },
+                  "is_archived": { "type": "boolean" },
+                  "num_members": { "type": "integer" }
+                }
+              }
+            },
+            "response_metadata": { "type": "object", "properties": { "next_cursor": { "type": "string" } } }
+          }
+        } } } } }
+      }
+    },
+    "/intents/post-message": {
+      "post": {
+        "summary": "Post a message to a channel.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["channel", "text"],
+          "properties": {
+            "channel": { "type": "string", "description": "Channel ID or name." },
+            "text": { "type": "string" }
+          }
+        } } } },
+        "responses": { "200": { "description": "Slack chat.postMessage response.", "content": { "application/json": { "schema": {
+          "$comment": "post-message and send-dm share this shape.",
+          "type": "object", "required": ["ok", "channel", "ts"],
+          "properties": {
+            "ok": { "type": "boolean", "const": true },
+            "channel": { "type": "string", "description": "Channel ID the message landed in." },
+            "ts": { "type": "string", "description": "Message timestamp; Slack's message ID." },
+            "message": { "type": "object", "properties": { "text": { "type": "string" } } }
+          }
+        } } } } }
+      }
+    },
+    "/intents/get-messages": {
+      "post": {
+        "summary": "Fetch recent messages from a channel.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["channel"],
+          "properties": { "channel": { "type": "string" }, "limit": { "type": "integer" } }
+        } } } },
+        "responses": { "200": { "description": "Slack conversations.history response.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok", "messages"],
+          "properties": {
+            "ok": { "type": "boolean", "const": true },
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["ts"],
+                "properties": {
+                  "ts": { "type": "string" },
+                  "text": { "type": "string" },
+                  "user": { "type": "string" },
+                  "type": { "type": "string" }
+                }
+              }
+            },
+            "has_more": { "type": "boolean" }
+          }
+        } } } } }
+      }
+    },
+    "/intents/send-dm": {
+      "post": {
+        "summary": "Send a direct message to a user.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["user_id", "text"],
+          "properties": {
+            "user_id": { "type": "string", "description": "Slack user ID (e.g. U01234ABCDE)." },
+            "text": { "type": "string" }
+          }
+        } } } },
+        "responses": { "200": { "description": "Slack chat.postMessage response for the DM.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok", "channel", "ts"],
+          "properties": {
+            "ok": { "type": "boolean", "const": true },
+            "channel": { "type": "string", "description": "The DM channel ID." },
+            "ts": { "type": "string" },
+            "message": { "type": "object", "properties": { "text": { "type": "string" } } }
+          }
+        } } } } }
+      }
+    },
+    "/intents/get-channel-info": {
+      "post": {
+        "summary": "Get metadata about a channel.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["channel"], "properties": { "channel": { "type": "string" } }
+        } } } },
+        "responses": { "200": { "description": "Slack conversations.info response.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok", "channel"],
+          "properties": {
+            "ok": { "type": "boolean", "const": true },
+            "channel": {
+              "type": "object", "required": ["id"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "is_channel": { "type": "boolean" },
+                "is_private": { "type": "boolean" },
+                "is_archived": { "type": "boolean" },
+                "topic": { "type": "object", "properties": { "value": { "type": "string" } } },
+                "purpose": { "type": "object", "properties": { "value": { "type": "string" } } }
+              }
+            }
+          }
+        } } } } }
+      }
+    },
+    "/intents/list-users": {
+      "post": {
+        "summary": "List workspace members.",
+        "requestBody": { "required": false, "content": { "application/json": { "schema": {
+          "type": "object", "properties": { "limit": { "type": "integer" } }
+        } } } },
+        "responses": { "200": { "description": "Slack users.list response.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok", "members"],
+          "properties": {
+            "ok": { "type": "boolean", "const": true },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["id"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "real_name": { "type": "string" },
+                  "deleted": { "type": "boolean" },
+                  "is_bot": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        } } } } }
+      }
+    }
+  }
+}"#;
 
 // ---------------------------------------------------------------------------
 // SlackCapability
@@ -187,7 +239,7 @@ impl Capability for SlackCapability {
 
     fn schema(&self) -> SchemaSource {
         SchemaSource::Embedded {
-            content_type: "application/yaml".into(),
+            content_type: "application/json".into(),
             body: EMBEDDED_SCHEMA.into(),
         }
     }

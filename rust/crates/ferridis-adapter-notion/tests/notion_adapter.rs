@@ -24,6 +24,26 @@ async fn start_adapter(notion_mock: &MockServer) -> SocketAddr {
     addr
 }
 
+/// Fetch the adapter's served `/schema` and assert `body` (the real
+/// response of `intent`) validates against the response schema it declares.
+async fn assert_conforms(addr: SocketAddr, intent: &str, body: &Value) {
+    let doc = http()
+        .get(format!("http://{addr}/schema"))
+        .send()
+        .await
+        .expect("GET /schema")
+        .bytes()
+        .await
+        .expect("schema body");
+    let verb = ferridis_core::IntentVerb::parse(intent).expect("canonical verb");
+    let outcome = ferridis_adapter_sdk::check_response(&doc, &verb, body)
+        .expect("served schema is an OpenAPI 3 JSON document");
+    assert!(
+        outcome.is_conforming(),
+        "`{intent}` response does not match its declared schema: {outcome:?}\nresponse: {body}"
+    );
+}
+
 fn http() -> reqwest::Client {
     reqwest::Client::new()
 }
@@ -65,6 +85,7 @@ async fn list_databases_returns_results() {
         .expect("list-databases");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-databases", &body).await;
     assert_eq!(body["results"].as_array().expect("array").len(), 1);
 }
 
@@ -90,6 +111,7 @@ async fn query_database_returns_pages() {
         .expect("query-database");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "query-database", &body).await;
     assert_eq!(body["results"].as_array().expect("array").len(), 1);
 }
 
@@ -113,6 +135,7 @@ async fn get_page_returns_page() {
         .expect("get-page");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "get-page", &body).await;
     assert_eq!(body["id"], "page001");
 }
 
@@ -139,6 +162,7 @@ async fn create_page_returns_page() {
         .expect("create-page");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "create-page", &body).await;
     assert_eq!(body["id"], "page002");
 }
 
@@ -162,6 +186,7 @@ async fn update_page_strips_page_id_and_patches() {
         .expect("update-page");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "update-page", &body).await;
     assert_eq!(body["id"], "page001");
     assert_eq!(body["archived"], true);
 }
@@ -188,6 +213,7 @@ async fn search_returns_results() {
         .expect("search");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "search", &body).await;
     assert_eq!(body["results"].as_array().expect("array").len(), 1);
 }
 

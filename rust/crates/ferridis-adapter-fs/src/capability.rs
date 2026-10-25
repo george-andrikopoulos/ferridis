@@ -29,41 +29,91 @@ const DEFAULT_MANIFEST_JSON: &str = r#"{
     "auth": { "type": "none" }
 }"#;
 
-/// The embedded OpenAPI schema for the filesystem adapter.
+/// The embedded OpenAPI 3 document for the filesystem adapter, served at
+/// `GET /schema`.
 ///
-/// Minimal stub in v0.1; full request/response schemas land in v0.2
-/// alongside schema-driven validation in the SDK.
-const EMBEDDED_SCHEMA: &str = r#"openapi: 3.0.3
-info:
-  title: Ferridis Filesystem
-  version: 0.1.0
-paths:
-  /intents/read-file:
-    post:
-      summary: Read a file under the configured root.
-      responses:
-        '200': { description: OK }
-  /intents/write-file:
-    post:
-      summary: Write a file under the configured root.
-      responses:
-        '200': { description: OK }
-  /intents/list-dir:
-    post:
-      summary: List a directory under the configured root.
-      responses:
-        '200': { description: OK }
-  /intents/search-files:
-    post:
-      summary: Recursively search for filenames matching a glob.
-      responses:
-        '200': { description: OK }
-  /intents/move-file:
-    post:
-      summary: Move or rename a file under the configured root.
-      responses:
-        '200': { description: OK }
-"#;
+/// JSON rather than YAML so `ferridis-protocol::ResponseSchemas` can read
+/// it without a YAML dependency (decision PTC-2). Every response schema
+/// is pinned against the real handlers by the conformance assertions in
+/// `tests/end_to_end.rs`.
+const EMBEDDED_SCHEMA: &str = r#"{
+  "openapi": "3.0.3",
+  "info": { "title": "Ferridis Filesystem", "version": "0.1.0" },
+  "paths": {
+    "/intents/read-file": {
+      "post": {
+        "summary": "Read a UTF-8 file under the configured root.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["path"],
+          "properties": { "path": { "type": "string", "description": "Relative path under the adapter's root." } }
+        } } } },
+        "responses": { "200": { "description": "The file's contents.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["path", "content", "bytes"],
+          "properties": {
+            "path": { "type": "string", "description": "The path as requested." },
+            "content": { "type": "string", "description": "The file's full UTF-8 text." },
+            "bytes": { "type": "integer", "minimum": 0, "description": "Length of `content` in bytes." }
+          }
+        } } } } }
+      }
+    },
+    "/intents/write-file": {
+      "post": {
+        "summary": "Write a file under the configured root, creating parent directories.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["path", "content"],
+          "properties": { "path": { "type": "string" }, "content": { "type": "string" } }
+        } } } },
+        "responses": { "200": { "description": "Written.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean", "const": true } }
+        } } } } }
+      }
+    },
+    "/intents/list-dir": {
+      "post": {
+        "summary": "List a directory under the configured root.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["path"],
+          "properties": { "path": { "type": "string", "description": "Empty string for the root." } }
+        } } } },
+        "responses": { "200": { "description": "One entry per directory member.", "content": { "application/json": { "schema": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["name", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "type": "string", "enum": ["file", "dir"] }
+            }
+          }
+        } } } } }
+      }
+    },
+    "/intents/search-files": {
+      "post": {
+        "summary": "Recursively find files whose name contains a substring.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["path", "name_contains"],
+          "properties": { "path": { "type": "string" }, "name_contains": { "type": "string" } }
+        } } } },
+        "responses": { "200": { "description": "Matching paths, relative to the root.", "content": { "application/json": { "schema": {
+          "type": "array", "items": { "type": "string" }
+        } } } } }
+      }
+    },
+    "/intents/move-file": {
+      "post": {
+        "summary": "Move or rename a file under the configured root.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["from", "to"],
+          "properties": { "from": { "type": "string" }, "to": { "type": "string" } }
+        } } } },
+        "responses": { "200": { "description": "Moved.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean", "const": true } }
+        } } } } }
+      }
+    }
+  }
+}"#;
 
 /// The filesystem capability.
 ///
@@ -101,7 +151,7 @@ impl Capability for FilesystemCapability {
 
     fn schema(&self) -> SchemaSource {
         SchemaSource::Embedded {
-            content_type: "application/yaml".into(),
+            content_type: "application/json".into(),
             body: EMBEDDED_SCHEMA.into(),
         }
     }

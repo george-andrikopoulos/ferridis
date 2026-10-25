@@ -32,6 +32,7 @@
 
 pub mod broker;
 pub mod capability;
+pub mod conformance;
 pub mod dispatch;
 pub mod events;
 pub mod server;
@@ -45,6 +46,7 @@ pub use broker::{
 pub use capability::{
     Capability, FlowIntentStream, FlowStreamItem, IntentStream, SchemaSource, StreamItem,
 };
+pub use conformance::{ResponseConformance, check_response};
 pub use dispatch::DispatchError;
 pub use events::{Event, EventPublisher, WebhookPublisher};
 pub use ferridis_protocol::{BackpressureSignal, StreamChunk};

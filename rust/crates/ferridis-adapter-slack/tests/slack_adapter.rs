@@ -24,6 +24,26 @@ async fn start_adapter(slack_mock: &MockServer) -> SocketAddr {
     addr
 }
 
+/// Fetch the adapter's served `/schema` and assert `body` (the real
+/// response of `intent`) validates against the response schema it declares.
+async fn assert_conforms(addr: SocketAddr, intent: &str, body: &Value) {
+    let doc = http()
+        .get(format!("http://{addr}/schema"))
+        .send()
+        .await
+        .expect("GET /schema")
+        .bytes()
+        .await
+        .expect("schema body");
+    let verb = ferridis_core::IntentVerb::parse(intent).expect("canonical verb");
+    let outcome = ferridis_adapter_sdk::check_response(&doc, &verb, body)
+        .expect("served schema is an OpenAPI 3 JSON document");
+    assert!(
+        outcome.is_conforming(),
+        "`{intent}` response does not match its declared schema: {outcome:?}\nresponse: {body}"
+    );
+}
+
 fn http() -> reqwest::Client {
     reqwest::Client::new()
 }
@@ -67,6 +87,7 @@ async fn list_channels_returns_channel_list() {
         .expect("list-channels");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-channels", &body).await;
     assert_eq!(body["channels"].as_array().expect("array").len(), 2);
 }
 
@@ -93,6 +114,7 @@ async fn post_message_returns_message() {
         .expect("post-message");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "post-message", &body).await;
     assert_eq!(body["ok"], true);
     assert_eq!(body["channel"], "C001");
 }
@@ -119,6 +141,7 @@ async fn get_messages_passes_channel_param() {
         .expect("get-messages");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "get-messages", &body).await;
     assert_eq!(body["messages"].as_array().expect("array").len(), 1);
 }
 
@@ -149,6 +172,7 @@ async fn send_dm_opens_channel_then_posts() {
         .expect("send-dm");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "send-dm", &body).await;
     assert_eq!(body["channel"], "D001");
 }
 
@@ -173,6 +197,7 @@ async fn get_channel_info_returns_info() {
         .expect("get-channel-info");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "get-channel-info", &body).await;
     assert_eq!(body["channel"]["name"], "general");
 }
 
@@ -197,6 +222,7 @@ async fn list_users_returns_members() {
         .expect("list-users");
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-users", &body).await;
     assert_eq!(body["members"].as_array().expect("array").len(), 1);
 }
 

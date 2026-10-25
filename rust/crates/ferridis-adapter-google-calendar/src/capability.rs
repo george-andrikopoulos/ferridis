@@ -35,146 +35,170 @@ const DEFAULT_MANIFEST_JSON: &str = r#"{
     "auth": { "type": "none" }
 }"#;
 
-const EMBEDDED_SCHEMA: &str = r#"openapi: 3.0.3
-info:
-  title: Ferridis Google Calendar
-  version: 0.1.0
-paths:
-  /intents/list-calendars:
-    post:
-      summary: List all calendars the authenticated user has access to.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties: {}
-      responses:
-        "200":
-          description: Calendar list resource from the Google Calendar API.
-
-  /intents/list-events:
-    post:
-      summary: List events from a calendar.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [calendar_id]
-              properties:
-                calendar_id:
-                  type: string
-                  description: Calendar identifier. Use "primary" for the user's primary calendar.
-                max_results:
-                  type: integer
-                  description: Maximum number of events to return.
-                time_min:
-                  type: string
-                  format: date-time
-                  description: Lower bound (inclusive) for an event's end time (RFC3339).
-                time_max:
-                  type: string
-                  format: date-time
-                  description: Upper bound (exclusive) for an event's start time (RFC3339).
-      responses:
-        "200":
-          description: Events list resource from the Google Calendar API.
-
-  /intents/get-event:
-    post:
-      summary: Fetch a single event by ID.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [calendar_id, event_id]
-              properties:
-                calendar_id:
-                  type: string
-                event_id:
-                  type: string
-      responses:
-        "200":
-          description: Event resource from the Google Calendar API.
-
-  /intents/create-event:
-    post:
-      summary: Create a new event in a calendar.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [calendar_id, summary, start, end]
-              properties:
-                calendar_id:
-                  type: string
-                summary:
-                  type: string
-                description:
-                  type: string
-                start:
-                  type: object
-                  description: Event start time (Google Calendar EventDateTime object).
-                end:
-                  type: object
-                  description: Event end time (Google Calendar EventDateTime object).
-      responses:
-        "200":
-          description: Created event resource from the Google Calendar API.
-
-  /intents/update-event:
-    post:
-      summary: Update an existing event.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [calendar_id, event_id]
-              properties:
-                calendar_id:
-                  type: string
-                event_id:
-                  type: string
-                summary:
-                  type: string
-                description:
-                  type: string
-                start:
-                  type: object
-                end:
-                  type: object
-      responses:
-        "200":
-          description: Updated event resource from the Google Calendar API.
-
-  /intents/delete-event:
-    post:
-      summary: Delete an event from a calendar.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [calendar_id, event_id]
-              properties:
-                calendar_id:
-                  type: string
-                event_id:
-                  type: string
-      responses:
-        "200":
-          description: Empty response — deletion successful.
-"#;
+/// The embedded OpenAPI 3 document, served at `GET /schema`.
+///
+/// JSON rather than YAML so `ferridis-protocol::ResponseSchemas` can read
+/// it without a YAML dependency (decision PTC-2). Most intents pass the
+/// Google Calendar API resource through, so the response schemas document
+/// its stable fields. The Event shape is inlined into each intent rather
+/// than shared through `components` + `$ref`, because a `$ref` cannot be
+/// lifted out of the document into a tool description. Each schema is
+/// pinned by a conformance assertion in `tests/google_calendar_adapter.rs`.
+const EMBEDDED_SCHEMA: &str = r#"{
+  "openapi": "3.0.3",
+  "info": { "title": "Ferridis Google Calendar", "version": "0.1.0" },
+  "paths": {
+    "/intents/list-calendars": {
+      "post": {
+        "summary": "List all calendars the authenticated user has access to.",
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": {} } } } },
+        "responses": { "200": { "description": "CalendarList resource.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["items"],
+          "properties": {
+            "kind": { "type": "string", "const": "calendar#calendarList" },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["id"],
+                "properties": {
+                  "id": { "type": "string", "description": "Pass as `calendar_id` to the other intents." },
+                  "summary": { "type": "string" },
+                  "primary": { "type": "boolean" },
+                  "accessRole": { "type": "string" },
+                  "timeZone": { "type": "string" }
+                }
+              }
+            },
+            "nextPageToken": { "type": "string" }
+          }
+        } } } } }
+      }
+    },
+    "/intents/list-events": {
+      "post": {
+        "summary": "List events from a calendar.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["calendar_id"],
+          "properties": {
+            "calendar_id": { "type": "string", "description": "Calendar identifier. Use \"primary\" for the user's primary calendar." },
+            "max_results": { "type": "integer", "description": "Maximum number of events to return." },
+            "time_min": { "type": "string", "format": "date-time", "description": "Lower bound (inclusive) for an event's end time (RFC3339)." },
+            "time_max": { "type": "string", "format": "date-time", "description": "Upper bound (exclusive) for an event's start time (RFC3339)." }
+          }
+        } } } },
+        "responses": { "200": { "description": "Events resource.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["items"],
+          "properties": {
+            "kind": { "type": "string", "const": "calendar#events" },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["id"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "status": { "type": "string", "enum": ["confirmed", "tentative", "cancelled"] },
+                  "summary": { "type": "string" },
+                  "description": { "type": "string" },
+                  "htmlLink": { "type": "string" },
+                  "start": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } },
+                  "end": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } }
+                }
+              }
+            },
+            "nextPageToken": { "type": "string" }
+          }
+        } } } } }
+      }
+    },
+    "/intents/get-event": {
+      "post": {
+        "summary": "Fetch a single event by ID.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["calendar_id", "event_id"],
+          "properties": { "calendar_id": { "type": "string" }, "event_id": { "type": "string" } }
+        } } } },
+        "responses": { "200": { "description": "Event resource.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["id"],
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "type": "string", "enum": ["confirmed", "tentative", "cancelled"] },
+            "summary": { "type": "string" },
+            "description": { "type": "string" },
+            "htmlLink": { "type": "string" },
+            "start": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } },
+            "end": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } },
+            "attendees": { "type": "array", "items": { "type": "object", "properties": { "email": { "type": "string" }, "responseStatus": { "type": "string" } } } }
+          }
+        } } } } }
+      }
+    },
+    "/intents/create-event": {
+      "post": {
+        "summary": "Create a new event in a calendar.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["calendar_id", "summary", "start", "end"],
+          "properties": {
+            "calendar_id": { "type": "string" },
+            "summary": { "type": "string" },
+            "description": { "type": "string" },
+            "start": { "type": "object", "description": "Event start time (Google Calendar EventDateTime object)." },
+            "end": { "type": "object", "description": "Event end time (Google Calendar EventDateTime object)." }
+          }
+        } } } },
+        "responses": { "200": { "description": "The created Event resource.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["id"],
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "type": "string", "enum": ["confirmed", "tentative", "cancelled"] },
+            "summary": { "type": "string" },
+            "htmlLink": { "type": "string" },
+            "start": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } },
+            "end": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } }
+          }
+        } } } } }
+      }
+    },
+    "/intents/update-event": {
+      "post": {
+        "summary": "Update an existing event.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["calendar_id", "event_id"],
+          "properties": {
+            "calendar_id": { "type": "string" },
+            "event_id": { "type": "string" },
+            "summary": { "type": "string" },
+            "description": { "type": "string" },
+            "start": { "type": "object" },
+            "end": { "type": "object" }
+          }
+        } } } },
+        "responses": { "200": { "description": "The updated Event resource.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["id"],
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "type": "string", "enum": ["confirmed", "tentative", "cancelled"] },
+            "summary": { "type": "string" },
+            "htmlLink": { "type": "string" },
+            "start": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } },
+            "end": { "type": "object", "properties": { "dateTime": { "type": "string" }, "date": { "type": "string" }, "timeZone": { "type": "string" } } }
+          }
+        } } } } }
+      }
+    },
+    "/intents/delete-event": {
+      "post": {
+        "summary": "Delete an event from a calendar.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["calendar_id", "event_id"],
+          "properties": { "calendar_id": { "type": "string" }, "event_id": { "type": "string" } }
+        } } } },
+        "responses": { "200": { "description": "Deleted.", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["deleted"], "properties": { "deleted": { "type": "boolean", "const": true } }
+        } } } } }
+      }
+    }
+  }
+}"#;
 
 // ---------------------------------------------------------------------------
 // GoogleCalendarCapability
@@ -231,7 +255,7 @@ impl Capability for GoogleCalendarCapability {
 
     fn schema(&self) -> SchemaSource {
         SchemaSource::Embedded {
-            content_type: "application/yaml".into(),
+            content_type: "application/json".into(),
             body: EMBEDDED_SCHEMA.into(),
         }
     }

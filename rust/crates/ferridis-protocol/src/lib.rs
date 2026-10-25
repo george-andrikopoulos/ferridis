@@ -55,6 +55,7 @@ pub mod events;
 pub mod manifest;
 pub mod mesh;
 pub mod oauth;
+pub mod openapi;
 pub mod schema;
 pub mod signing;
 pub mod ws;
@@ -73,6 +74,7 @@ pub use events::{
 pub use manifest::fetch_manifest;
 pub use mesh::{FederatedMesh, MeshArtifact, MeshClient, MeshIndex, MeshIndexEntry};
 pub use oauth::{AuthorizationUrl, PkceChallenge, PkceVerifier, TokenResponse};
+pub use openapi::{OpenApiError, ResponseSchema, ResponseSchemas};
 pub use schema::{SchemaBytes, fetch_schema};
 pub use signing::{
     CosignBundle, SigningError, TrustRoot, VerifiedManifest, verify_signed_manifest,

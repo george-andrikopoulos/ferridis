@@ -18,6 +18,7 @@ use time::{Duration as TimeDuration, OffsetDateTime};
 use url::Url;
 
 use ferridis_core::{CapabilityRef, IntentVerb, Manifest};
+use ferridis_protocol::ResponseSchemas;
 
 use crate::mcp::McpClient;
 
@@ -184,6 +185,12 @@ pub struct CapabilityRecord {
     /// `None` means no per-intent schemas were captured — the caller
     /// is responsible for falling back to whatever defaults apply.
     input_schemas: Option<Arc<HashMap<IntentVerb, serde_json::Value>>>,
+    /// Per-intent response schemas read from the capability's OpenAPI
+    /// document by [`crate::Client::load_response_schemas`]. `None` until
+    /// that runs, and it is never run by registration itself: schemas
+    /// stay lazy-loaded (resolved friction #1), so only callers that
+    /// need them up front, such as a tool catalogue, opt in.
+    response_schemas: Option<Arc<ResponseSchemas>>,
     fetched_at: OffsetDateTime,
 }
 
@@ -208,6 +215,7 @@ impl CapabilityRecord {
             backend,
             tier: RegistryTier::Personal,
             input_schemas: None,
+            response_schemas: None,
             fetched_at: OffsetDateTime::now_utc(),
         }
     }
@@ -252,6 +260,12 @@ impl CapabilityRecord {
     /// Native-backed records return `None`.
     pub fn input_schemas(&self) -> Option<&Arc<HashMap<IntentVerb, serde_json::Value>>> {
         self.input_schemas.as_ref()
+    }
+
+    /// Per-intent response schemas, once
+    /// [`crate::Client::load_response_schemas`] has found some.
+    pub fn response_schemas(&self) -> Option<&Arc<ResponseSchemas>> {
+        self.response_schemas.as_ref()
     }
 
     /// The discovery tier this record was registered under.
@@ -388,6 +402,23 @@ impl Registry {
         let prior = record.tier;
         record.tier = tier;
         Ok(prior)
+    }
+
+    /// Attach per-intent response schemas to an existing record,
+    /// replacing any it held. Returns
+    /// [`crate::ClientError::CapabilityNotRegistered`] if no such record
+    /// exists.
+    pub fn set_response_schemas(
+        &mut self,
+        capability: &CapabilityRef,
+        schemas: ResponseSchemas,
+    ) -> Result<(), crate::ClientError> {
+        let record = self
+            .records
+            .get_mut(capability)
+            .ok_or_else(|| crate::ClientError::CapabilityNotRegistered(capability.clone()))?; // allow:clone — the error variant owns the ref it names; only on the failure path
+        record.response_schemas = Some(Arc::new(schemas));
+        Ok(())
     }
 
     /// Whether the record for `capability` is younger than [`DEFAULT_MANIFEST_TTL`].

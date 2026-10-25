@@ -35,6 +35,26 @@ async fn start_adapter(gcal_mock: &MockServer) -> SocketAddr {
     addr
 }
 
+/// Fetch the adapter's served `/schema` and assert `body` (the real
+/// response of `intent`) validates against the response schema it declares.
+async fn assert_conforms(addr: SocketAddr, intent: &str, body: &Value) {
+    let doc = http()
+        .get(format!("http://{addr}/schema"))
+        .send()
+        .await
+        .expect("GET /schema")
+        .bytes()
+        .await
+        .expect("schema body");
+    let verb = ferridis_core::IntentVerb::parse(intent).expect("canonical verb");
+    let outcome = ferridis_adapter_sdk::check_response(&doc, &verb, body)
+        .expect("served schema is an OpenAPI 3 JSON document");
+    assert!(
+        outcome.is_conforming(),
+        "`{intent}` response does not match its declared schema: {outcome:?}\nresponse: {body}"
+    );
+}
+
 fn http() -> reqwest::Client {
     reqwest::Client::new()
 }
@@ -86,6 +106,7 @@ async fn list_calendars_returns_calendar_list() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-calendars", &body).await;
     let items = body["items"].as_array().expect("items array");
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["id"], "primary");
@@ -116,6 +137,7 @@ async fn list_events_passes_query_params() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-events", &body).await;
     assert_eq!(body["items"][0]["id"], "evt1");
 }
 
@@ -142,6 +164,7 @@ async fn get_event_returns_event() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "get-event", &body).await;
     assert_eq!(body["id"], "abc123");
     assert_eq!(body["summary"], "Team lunch");
 }
@@ -174,6 +197,7 @@ async fn create_event_strips_routing_fields() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "create-event", &body).await;
     assert_eq!(body["id"], "new_evt");
     assert_eq!(body["summary"], "Planning meeting");
 }
@@ -205,6 +229,7 @@ async fn update_event_returns_updated_event() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "update-event", &body).await;
     assert_eq!(body["summary"], "Updated: Team lunch");
 }
 
@@ -227,6 +252,7 @@ async fn delete_event_returns_deleted_true() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "delete-event", &body).await;
     assert_eq!(body["deleted"], true);
 }
 

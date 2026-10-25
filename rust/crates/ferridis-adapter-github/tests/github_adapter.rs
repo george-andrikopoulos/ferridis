@@ -41,6 +41,26 @@ fn http() -> reqwest::Client {
     reqwest::Client::new()
 }
 
+/// Fetch the adapter's served `/schema` and assert `body` (the real
+/// response of `intent`) validates against the response schema it declares.
+async fn assert_conforms(addr: SocketAddr, intent: &str, body: &Value) {
+    let doc = http()
+        .get(format!("http://{addr}/schema"))
+        .send()
+        .await
+        .expect("GET /schema")
+        .bytes()
+        .await
+        .expect("schema body");
+    let verb = ferridis_core::IntentVerb::parse(intent).expect("canonical verb");
+    let outcome = ferridis_adapter_sdk::check_response(&doc, &verb, body)
+        .expect("served schema is an OpenAPI 3 JSON document");
+    assert!(
+        outcome.is_conforming(),
+        "`{intent}` response does not match its declared schema: {outcome:?}\nresponse: {body}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -84,6 +104,7 @@ async fn list_repos_returns_repo_list() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-repos", &body).await;
     assert_eq!(body.as_array().expect("array").len(), 2);
     assert_eq!(body[0]["name"], "hello-world");
 }
@@ -115,6 +136,7 @@ async fn get_file_decodes_base64_content() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "get-file", &body).await;
     assert_eq!(body["content"], content);
     assert_eq!(body["sha"], "abc123");
 }
@@ -142,6 +164,7 @@ async fn list_issues_returns_issue_list() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-issues", &body).await;
     let issues = body.as_array().expect("array");
     assert_eq!(issues.len(), 2);
     assert_eq!(issues[0]["title"], "Bug report");
@@ -176,6 +199,7 @@ async fn create_issue_returns_created_issue() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "create-issue", &body).await;
     assert_eq!(body["number"], 42);
     assert_eq!(body["title"], "My test issue");
 }
@@ -202,6 +226,7 @@ async fn list_pull_requests_returns_pr_list() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "list-pull-requests", &body).await;
     let prs = body.as_array().expect("array");
     assert_eq!(prs.len(), 1);
     assert_eq!(prs[0]["number"], 10);
@@ -235,6 +260,7 @@ async fn search_code_returns_results() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.expect("JSON");
+    assert_conforms(addr, "search-code", &body).await;
     assert_eq!(body["total_count"], 1);
     assert_eq!(body["items"][0]["name"], "lib.rs");
 }

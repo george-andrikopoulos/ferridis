@@ -45,61 +45,51 @@ const MANIFEST_JSON: &str = r##"{
     "auth": { "type": "none" }
 }"##;
 
-/// Embedded OpenAPI body the adapter serves at `/schema`. Tiny
-/// outline — the source of truth for argument shapes is the
+/// Embedded OpenAPI 3 document the adapter serves at `/schema`. A tiny
+/// outline: the real source of truth for argument shapes is the
 /// per-intent input newtypes in [`crate::input`].
-const SCHEMA_BODY: &str = r##"openapi: 3.0.0
-info:
-  title: Claude Code CLI capability
-  version: "1.0.0"
-paths:
-  /intents/submit-prompt:
-    post:
-      summary: Start a fresh non-interactive Claude Code session and stream its stream-json events.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [prompt]
-              additionalProperties: false
-              properties:
-                prompt:
-                  type: string
-                  minLength: 1
-                cwd:
-                  type: string
-                  description: Absolute path; must lie within an operator-configured allowed root.
-                model:
-                  type: string
-                  description: Model alias; must be in the operator-configured allow-list.
-                session_id:
-                  type: string
-                  format: uuid
-  /intents/resume-session:
-    post:
-      summary: Resume an existing Claude Code session by id and stream its stream-json events.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [session_id, prompt]
-              additionalProperties: false
-              properties:
-                session_id:
-                  type: string
-                  format: uuid
-                prompt:
-                  type: string
-                  minLength: 1
-                cwd:
-                  type: string
-                model:
-                  type: string
-"##;
+///
+/// JSON rather than YAML so `ferridis-protocol::ResponseSchemas` can read
+/// it without a YAML dependency (decision PTC-2). Both intents are
+/// stream-kind and answer with `text/event-stream`, so neither declares
+/// a JSON response schema. Each chunk's shape is the manifest's
+/// `chunk_schema_url`.
+const SCHEMA_BODY: &str = r##"{
+  "openapi": "3.0.0",
+  "info": { "title": "Claude Code CLI capability", "version": "1.0.0" },
+  "paths": {
+    "/intents/submit-prompt": {
+      "post": {
+        "summary": "Start a fresh non-interactive Claude Code session and stream its stream-json events.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["prompt"], "additionalProperties": false,
+          "properties": {
+            "prompt": { "type": "string", "minLength": 1 },
+            "cwd": { "type": "string", "description": "Absolute path; must lie within an operator-configured allowed root." },
+            "model": { "type": "string", "description": "Model alias; must be in the operator-configured allow-list." },
+            "session_id": { "type": "string", "format": "uuid" }
+          }
+        } } } },
+        "responses": { "200": { "description": "SSE stream of Claude Code stream-json events.", "content": { "text/event-stream": {} } } }
+      }
+    },
+    "/intents/resume-session": {
+      "post": {
+        "summary": "Resume an existing Claude Code session by id and stream its stream-json events.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["session_id", "prompt"], "additionalProperties": false,
+          "properties": {
+            "session_id": { "type": "string", "format": "uuid" },
+            "prompt": { "type": "string", "minLength": 1 },
+            "cwd": { "type": "string" },
+            "model": { "type": "string" }
+          }
+        } } } },
+        "responses": { "200": { "description": "SSE stream of Claude Code stream-json events.", "content": { "text/event-stream": {} } } }
+      }
+    }
+  }
+}"##;
 
 /// Configuration the operator hands to [`ClaudeCliCapability::new`].
 #[derive(Debug, Clone)]
@@ -224,7 +214,7 @@ impl Capability for ClaudeCliCapability {
 
     fn schema(&self) -> SchemaSource {
         SchemaSource::Embedded {
-            content_type: "application/yaml".into(),
+            content_type: "application/json".into(),
             body: SCHEMA_BODY.into(),
         }
     }

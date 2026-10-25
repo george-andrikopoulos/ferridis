@@ -177,6 +177,28 @@ Drives the `claude` CLI (Claude Code) as a stream-kind Ferridis capability — t
 - [x] Reference adapters: **Notion done** (`ferridis-adapter-notion`) — 6 intents (list-databases, query-database, get-page, create-page, update-page, search), integration token held server-side, mandatory `Notion-Version: 2022-06-28` header, `query-database` and `update-page` strip routing fields before forwarding to API. 4 unit + 9 e2e tests via wiremock. Default port 7830.
 - [~] **Streaming response schema language — design extension + manifest plumbing shipped** (2026-05-11/12) — design lives in [`wire-protocol.md`](./wire-protocol.md). Capabilities declare per-intent `kind: "request" | "stream"` and (for streamed kinds) a `chunk_schema_url`. Wire transport reuses the SSE primitive from M6. Client API: `dispatch_streaming(capability, intent, body) -> impl Stream<Item = Result<Value, ClientError>>`. **v0.3 manifest plumbing shipped** (2026-05-12): `ferridis_core::IntentKind` (Request/Stream), `ferridis_core::IntentMetadata` (kind + optional chunk_schema_url), `Manifest::intent_kind(verb)` + `Manifest::intent_metadata(verb)`. Manifest's `intents` field accepts both flat strings (default kind: Request) and structured `{verb, kind, chunk_schema_url}` objects via serde-untagged. Validation enforces that streamed intents must declare a chunk_schema_url — silent default would be a footgun for clients trying to validate received chunks. **Shipped (v0.3, 2026-05-12)**: `Client::dispatch_streaming` fully implemented — see v0.3 notes above.
 
+## Programmatic tool calling (PTC) — v0.7
+
+Design gate: decisions PTC-1, PTC-2 and PTC-3 in the [architecture.md](./architecture.md) decisions log, all approved 2026-10-25.
+
+- [x] **Step 1 — design gate.** Caller policy is `CallerPolicy { Direct | Code }`. Precedence, highest first: computed constraint > adapters.json override > manifest declaration > default `Direct`. Enforced both ways at dispatch.
+- [x] **Step 2 — response schemas in `describe()`.** Pinned through the production path by mcp-server `tools_list_descriptions_carry_the_served_response_schemas`.
+  - [x] `ferridis-protocol::openapi`: `ResponseSchemas` parsed from an OpenAPI 3 JSON document
+  - [x] `ferridis-adapter-sdk::check_response`: conformance helper for adapter tests
+  - [x] Convert the six reference adapters' embedded OpenAPI from YAML to JSON, with a response schema for every request-kind intent; add conformance assertions to each adapter's e2e suite
+  - [x] `ferridis-client`: `CapabilityRecord` response schemas, `Client::load_response_schemas` (adapter `/schema` first, then `schema_url`)
+  - [x] `ferridis-client::catalogue`: tool naming, `describe()`, input-schema precedence and stream collection, moved out of `ferridis-mcp-server` (PTC-3)
+  - [x] `ferridis-mcp-server`: `tools.rs` becomes a thin projection; registration loads response schemas; e2e pin that `tools/list` descriptions carry the schema
+- [ ] **Step 3 — `ferridis-ptc` crate** (lib + example): Messages API over reqwest, `PendingProgrammaticCalls` typestate, `ContainerId`/`ContainerExpiry` newtypes, caller-policy enforcement, recursive-`$ref` downgrade, `strict` stripped, caller recorded in tier-used telemetry. Also: move `AdapterConfig` + `register_adapters` into `ferridis-client` (PTC-3); add the manifest `callers` field (v0.7) and the adapters.json override (PTC-1).
+- [ ] **Step 4 — tests**: wiremock replay of recorded API responses (no tokens spent by default); property tests (one result per programmatic call; a continuation holds only tool_results; a refusal never reaches the adapter); one `#[ignore]`'d live smoke test behind an env var, with its cost stated.
+- [ ] README "What runs today": update only after the end-to-end live run works.
+
+Out of scope for PTC (separate items, not started):
+
+- [ ] Move `ferridis-mcp-server` from MCP 2024-11-05 to a current spec (`outputSchema` / `structuredContent`).
+- [ ] Any `ferridis-mcp-server` change beyond what PTC-3 approved (the catalogue move and loading response schemas at registration).
+- [ ] Derive native adapters' **input** schemas from the OpenAPI `requestBody` and retire the hardcoded fs table in the catalogue. The data is now parseable JSON, but this changes client-side dispatch validation, so it needs its own change.
+
 ## Enforcement gaps (from the FEATURES.md ledger audit, 2026-07-20)
 
 Every **NOTHING YET — exposed** entry in [FEATURES.md](./FEATURES.md) is a documented behavior with no type or test holding it. Close each gap and update the corresponding ledger row in the same change:

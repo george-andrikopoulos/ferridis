@@ -169,6 +169,61 @@ async fn move_file_relocates_a_file() {
     assert_eq!(body["content"], "stays");
 }
 
+/// Fetch the adapter's served `/schema` and assert `body` (the real
+/// response of `intent`) validates against the response schema it declares.
+async fn assert_conforms(addr: SocketAddr, intent: &str, body: &serde_json::Value) {
+    let doc = reqwest::get(format!("http://{addr}/schema"))
+        .await
+        .expect("GET /schema")
+        .bytes()
+        .await
+        .expect("schema body");
+    let verb = ferridis_core::IntentVerb::parse(intent).expect("canonical verb");
+    let outcome = ferridis_adapter_sdk::check_response(&doc, &verb, body)
+        .expect("served schema is an OpenAPI 3 JSON document");
+    assert!(
+        outcome.is_conforming(),
+        "`{intent}` response does not match its declared schema: {outcome:?}\nresponse: {body}"
+    );
+}
+
+/// Every intent's real response matches the response schema the adapter
+/// serves. This is what makes the schema appended to tool descriptions
+/// (`ferridis-client::catalogue`) true rather than aspirational.
+#[tokio::test]
+async fn every_intent_response_conforms_to_the_served_schema() {
+    let dir = TempDir::new().unwrap();
+    let addr = spin(&dir).await;
+    let client = reqwest::Client::new();
+    let calls = [
+        (
+            "write-file",
+            serde_json::json!({"path": "sub/notes.md", "content": "x"}),
+        ),
+        ("read-file", serde_json::json!({"path": "sub/notes.md"})),
+        ("list-dir", serde_json::json!({"path": ""})),
+        (
+            "search-files",
+            serde_json::json!({"path": "", "name_contains": "notes"}),
+        ),
+        (
+            "move-file",
+            serde_json::json!({"from": "sub/notes.md", "to": "moved.md"}),
+        ),
+    ];
+    for (intent, args) in calls {
+        let resp = client
+            .post(format!("http://{addr}/intents/{intent}"))
+            .json(&args)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "{intent}");
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_conforms(addr, intent, &body).await;
+    }
+}
+
 #[tokio::test]
 async fn refuses_path_traversal_escape() {
     let dir = TempDir::new().unwrap();

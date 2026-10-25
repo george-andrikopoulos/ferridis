@@ -531,3 +531,65 @@ async fn ping_responds_with_empty_object() {
     assert_eq!(resp["result"], serde_json::json!({}));
     mcp.shutdown().await;
 }
+
+/// PTC step 2, through the production path: the real binary, a real fs
+/// adapter, adapters.json. Every request-kind tool description ends with
+/// the response schema the adapter serves at `/schema`, byte for byte as
+/// `serde_json` renders it, so a programmatic caller can parse results in
+/// code without guessing their shape.
+#[tokio::test]
+async fn tools_list_descriptions_carry_the_served_response_schemas() {
+    let work = TempDir::new().expect("work dir");
+    let fs_root = TempDir::new().expect("fs root");
+    let addr = spin_fs_adapter(&fs_root).await;
+    let cfg_path = write_adapters_config(&work, addr);
+
+    let served: Value = reqwest::get(format!("http://{addr}/schema"))
+        .await
+        .expect("adapter serves /schema")
+        .json()
+        .await
+        .expect("/schema is JSON");
+
+    let mut mcp = McpClient::spawn(&cfg_path).await;
+    mcp.send(json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": { "protocolVersion": "2024-11-05", "capabilities": {},
+                    "clientInfo": {"name": "test-harness", "version": "0.1.0"} }
+    }))
+    .await;
+    assert_eq!(mcp.recv().await["id"], 1, "initialize must answer first");
+    mcp.send(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}))
+        .await;
+    let listed = mcp.recv().await;
+    let tools = listed["result"]["tools"].as_array().expect("tools array");
+
+    for verb in [
+        "read-file",
+        "write-file",
+        "list-dir",
+        "search-files",
+        "move-file",
+    ] {
+        let name = format!("ferridis_ferridis_fs_v1_{}", verb.replace('-', "_"));
+        let tool = tools
+            .iter()
+            .find(|t| t["name"] == name.as_str())
+            .unwrap_or_else(|| panic!("{name} missing from tools/list"));
+        let description = tool["description"]
+            .as_str()
+            .expect("description is a string");
+        let schema = &served["paths"][format!("/intents/{verb}")]["post"]["responses"]["200"]["content"]
+            ["application/json"]["schema"];
+        assert!(
+            schema.is_object(),
+            "fs adapter declares no 200 schema for {verb}"
+        );
+        assert!(
+            description.ends_with(&format!("Returns JSON. Response schema: {schema}")),
+            "{name}: {description}"
+        );
+    }
+
+    mcp.shutdown().await;
+}
