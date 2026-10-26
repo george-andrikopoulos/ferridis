@@ -83,7 +83,7 @@
     "build": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node20",
     "watch": "npm run build -- --watch",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --out ferridis.vsix",
+    "package": "vsce package --no-dependencies --out ferridis.vsix",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p ."
   },

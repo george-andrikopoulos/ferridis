@@ -60,6 +60,7 @@ Release binaries land in `rust/target/release/`.
 | `ferridis-discovery-broker` | Local service registry on `127.0.0.1:7825` |
 | `ferridis-adapter-fs` | Filesystem reference adapter |
 | `ferridis-adapter-claude-cli` | Claude Code CLI adapter (stream-kind) |
+| `ferridis-ptc` (library + `ptc_run` example) | Programmatic tool calling over the Claude Messages API. Try it with `ANTHROPIC_API_KEY=... cargo run -p ferridis-ptc --example ptc_run -- adapters.json "<task>"`; an unscoped key also needs `ANTHROPIC_WORKSPACE_ID` |
 
 ### Discovery broker — systemd user unit
 

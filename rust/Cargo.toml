@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.95"
 license = "Apache-2.0"
@@ -29,10 +29,10 @@ description = "Ferridis — an opinionated, type-driven design layer above the A
 
 [workspace.dependencies]
 # In-tree crates
-ferridis-core = { path = "crates/ferridis-core", version = "0.1.0" }
-ferridis-protocol = { path = "crates/ferridis-protocol", version = "0.1.0" }
-ferridis-adapter-sdk = { path = "crates/ferridis-adapter-sdk", version = "0.1.0" }
-ferridis-client = { path = "crates/ferridis-client", version = "0.1.0" }
+ferridis-core = { path = "crates/ferridis-core", version = "0.7.0" }
+ferridis-protocol = { path = "crates/ferridis-protocol", version = "0.7.0" }
+ferridis-adapter-sdk = { path = "crates/ferridis-adapter-sdk", version = "0.7.0" }
+ferridis-client = { path = "crates/ferridis-client", version = "0.7.0" }
 
 # Core dependencies
 serde = { version = "1", features = ["derive"] }

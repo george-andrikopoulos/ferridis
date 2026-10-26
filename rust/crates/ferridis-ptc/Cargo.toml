@@ -28,7 +28,7 @@ wiremock = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 ferridis-adapter-sdk = { workspace = true }
-ferridis-adapter-fs = { path = "../ferridis-adapter-fs", version = "0.1.0" }
+ferridis-adapter-fs = { path = "../ferridis-adapter-fs", version = "0.7.0" }
 axum = { workspace = true }
 tracing-subscriber = { workspace = true }
 

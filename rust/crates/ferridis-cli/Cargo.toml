@@ -29,5 +29,5 @@ tracing-subscriber = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
 ferridis-adapter-sdk = { workspace = true }
-ferridis-adapter-fs = { path = "../ferridis-adapter-fs", version = "0.1.0" }
+ferridis-adapter-fs = { path = "../ferridis-adapter-fs", version = "0.7.0" }
 axum = { workspace = true }

@@ -216,6 +216,12 @@ Out of scope for PTC (separate items, not started):
 - [ ] Any `ferridis-mcp-server` change beyond what PTC-3 approved (the catalogue move and loading response schemas at registration).
 - [ ] Derive native adapters' **input** schemas from the OpenAPI `requestBody` and retire the hardcoded fs table in the catalogue. The data is now parseable JSON, but this changes client-side dispatch validation, so it needs its own change.
 
+## Release v0.7.0 (2026-10-26)
+
+- [x] **Workspace versioned 0.7.0.** It had read 0.1.0 since the first commit, so `ferridis-mcp-server` announced itself as 0.1.0 in `serverInfo`. The four `ferridis-adapter-fs` dev-dependency pins moved with it.
+- [ ] **Tag `v0.7.0` and publish the GitHub release** from RELEASE-v0.7.md, with the VS Code extension `.vsix` attached. The repository's first tag and first release.
+- [ ] **Redeploy the maintainer's Windows service from the tag**, keeping the bearer token so VS Code service mode stays connected.
+
 ## VS Code service mode, and v0.7 on the Windows service (2026-10-26)
 
 - [x] **Extension v0.3: service mode.** `ferridis.serverUrl` connects VS Code to a running `ferridis-mcp-server --http-bind` through an MCP server definition provider. The bearer is held in VS Code secret storage (**Ferridis: Set Service Token**). Stdio mode is unchanged. The decision and its alternatives are in the architecture.md decisions log.

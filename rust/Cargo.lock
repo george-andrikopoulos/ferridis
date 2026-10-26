@@ -1114,7 +1114,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ferridis-adapter-claude-cli"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1136,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-adapter-fs"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-adapter-github"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-adapter-google-calendar"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-adapter-notion"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1216,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-adapter-sdk"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-adapter-slack"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-cli"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "ferridis-adapter-fs",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-client"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-core"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "proptest",
  "secrecy",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-discovery-broker"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "axum-test",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-mcp-server"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1369,7 +1369,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-protocol"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-ptc"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "ferridis-adapter-fs",
@@ -1429,7 +1429,7 @@ dependencies = [
 
 [[package]]
 name = "ferridis-stdio-bridge"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "bytes",

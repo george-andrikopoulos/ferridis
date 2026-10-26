@@ -1,6 +1,6 @@
 # Ferridis v0.7: programmatic tool calling
 
-> **Status:** on `main`, not yet tagged. Everything here is built, tested on Ubuntu and Windows CI, and, for the headline feature, verified once against the live Claude API.
+> **Released 2026-10-26** as tag `v0.7.0`; every crate in the workspace is now versioned `0.7.0`. Everything here is built, tested on Ubuntu and Windows CI, and, for the headline feature, verified once against the live Claude API.
 
 **Ferridis now supports programmatic tool calling.** Claude can call Ferridis tools from code it writes and runs, not only one call at a time from the conversation. That is the headline of v0.7. The release also lets VS Code connect to a Ferridis service that is already running, wires backpressure end to end, and adds response schemas to every reference adapter.
 
