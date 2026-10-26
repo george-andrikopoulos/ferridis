@@ -56,7 +56,7 @@ Release binaries land in `rust/target/release/`.
 | Binary | Purpose |
 |---|---|
 | `ferridis-mcp-server` | MCP publisher shim — exposes Ferridis capabilities as MCP tools |
-| `ferridis-cli` | JSON-RPC 2.0 sidecar for non-Rust hosts (VS Code extension, scripts) |
+| `ferridis-cli` | JSON-RPC 2.0 sidecar for non-Rust hosts (scripts). The VS Code extension does not use it: it talks to `ferridis-mcp-server` (see `editors/vscode/README.md`) |
 | `ferridis-discovery-broker` | Local service registry on `127.0.0.1:7825` |
 | `ferridis-adapter-fs` | Filesystem reference adapter |
 | `ferridis-adapter-claude-cli` | Claude Code CLI adapter (stream-kind) |

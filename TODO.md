@@ -216,6 +216,16 @@ Out of scope for PTC (separate items, not started):
 - [ ] Any `ferridis-mcp-server` change beyond what PTC-3 approved (the catalogue move and loading response schemas at registration).
 - [ ] Derive native adapters' **input** schemas from the OpenAPI `requestBody` and retire the hardcoded fs table in the catalogue. The data is now parseable JSON, but this changes client-side dispatch validation, so it needs its own change.
 
+## VS Code service mode, and v0.7 on the Windows service (2026-10-26)
+
+- [x] **Extension v0.3: service mode.** `ferridis.serverUrl` connects VS Code to a running `ferridis-mcp-server --http-bind` through an MCP server definition provider. The bearer is held in VS Code secret storage (**Ferridis: Set Service Token**). Stdio mode is unchanged. The decision and its alternatives are in the architecture.md decisions log.
+- [x] **Settings parsing is a pure module with tests.** `src/connection.ts` has no `vscode` import, and `npm test` runs it under `node --test`.
+- [x] **INSTALL.md no longer says the VS Code extension uses `ferridis-cli`.** That was true of the Task 11 extension (v0.1) and stale since v0.2.
+- [x] **v0.7 deployed to the maintainer's Windows service** (`FerridisMCP`, WinSW, LocalSystem, Streamable HTTP on 127.0.0.1:7820) from f058572. The three service binaries do not depend on `ferridis-ptc`, so they match 497c1b4. 112 tools before and after; the bearer was rotated in the same run.
+- [ ] **The Windows service deployment is not in INSTALL.md.** The Windows section documents the discovery broker as a Scheduled Task (and NSSM). The way `ferridis-mcp-server` actually runs as a service on Windows is undocumented: WinSW wrapping `--http-bind` with `FERRIDIS_MCP_BEARER`, running as LocalSystem because one stdio adapter needs elevation. The same goes for the backup-swap-rotate-probe-rollback deploy script.
+- [ ] **The service bearer sits in plain text in the WinSW XML.** `ferridis-mcp-server` takes the token only as `--bearer-token` or `FERRIDIS_MCP_BEARER`, so whatever launches it must hold the value. A `--bearer-token-file` option would let the service config name a file with tight permissions instead.
+- [ ] **Native Windows service support in `ferridis-mcp-server`** (the `windows-service` crate, which covers both dispatch and install/recovery; Microsoft's `windows-services` covers dispatch only), retiring WinSW. Deferred 2026-10-26 in favour of redeploying into the existing WinSW service.
+
 ## Enforcement gaps (from the FEATURES.md ledger audit, 2026-07-20)
 
 Every **NOTHING YET — exposed** entry in [FEATURES.md](./FEATURES.md) is a documented behavior with no type or test holding it. Close each gap and update the corresponding ledger row in the same change:
@@ -228,7 +238,7 @@ Every **NOTHING YET — exposed** entry in [FEATURES.md](./FEATURES.md) is a doc
 - [x] Broker self-registration heartbeat e2e (2026-07-20) — `BrokerConfig::with_heartbeat_interval` added (default 240 s unchanged); `ferridis-adapter-sdk/tests/broker_heartbeat.rs`: re-register within interval, abort-on-drop stops, pinned never heartbeats
 - [x] Tier-used logging capture test (2026-07-20) — `ferridis-client/tests/tier_logging.rs` captures real tracing output through a real dispatch and asserts capability/intent/tier fields
 - [x] HTTP pool-hardening — **accepted as config-constant-only** (2026-07-20): reqwest exposes no pool-state readback; constants public with rationale doc-comments
-- [ ] Editor-extension automated tests (VS Code TS extension, Zed WASM extension) — currently manual verification only
+- [~] Editor-extension automated tests — **VS Code: settings and token parsing covered** (2026-10-26, `editors/vscode/src/connection.test.ts`, 11 tests via `npm test`). The VS Code side (MCP provider, secret storage, `mcp.servers` writes) and the Zed WASM extension are still manual verification only.
 - [x] Property-based tests (2026-07-20) — `proptest` added; `ferridis-core/tests/prop_parsers.rs` (8 properties: IntentVerb, CapabilityVersion, CapabilityRef) + `ferridis-protocol/tests/prop_sse.rs` (3 properties: chunk-boundary invariance, field fidelity, CRLF≡LF). A whole-`Manifest`-document generator remains a candidate follow-up.
 - [x] **Backpressure wired end-to-end + cancellation propagation (v0.7, 2026-07-20)** — `Capability::dispatch_stream_flow` (default adapts `dispatch_stream`, existing adapters untouched); SDK emits `event: backpressure {"signal": …}` on state change, `Halt` terminates the stream; client surfaces halt as typed `ClientError::StreamHalted`, slow-down via tracing; wire is additive (pre-v0.7 clients ignore the event per SSE convention). Cancellation: consumer drop provably drops the adapter's intent stream (`consumer_drop_reaches_the_adapter_stream_drop`). Tests: client `backpressure_flow.rs`, sdk `stream_cancellation.rs` (wire-shape pin included).
 - [x] `mcp_consumer` interop self-test made platform-correct (2026-07-20) — binary located beside the test executable (honors `CARGO_TARGET_DIR`, platform exe suffix); previously hardcoded a Unix `target/release` path and failed on Windows
