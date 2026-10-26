@@ -11,6 +11,7 @@ use crate::container::{Clock, Container, SystemClock};
 use crate::error::{ParameterError, PtcError};
 use crate::request::{Conversation, Message, UserPrompt};
 use crate::response::{RawResponse, Turn};
+use crate::retry::RetryPolicy;
 
 /// The `anthropic-version` header sent on every request.
 pub const API_VERSION: &str = "2026-10-21";
@@ -107,6 +108,9 @@ impl WorkspaceId {
 }
 
 /// A Messages API client for programmatic-tool-calling conversations.
+///
+/// Retry delays run on the tokio timer, so requests need a runtime with
+/// time enabled (`#[tokio::main]` enables it).
 #[derive(Debug, Clone)]
 pub struct PtcClient {
     http: reqwest::Client,
@@ -114,6 +118,7 @@ pub struct PtcClient {
     workspace: Option<WorkspaceId>,
     endpoint: Url,
     clock: Arc<dyn Clock>,
+    retry: RetryPolicy,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,7 +151,15 @@ impl PtcClient {
             endpoint: Url::parse(DEFAULT_ENDPOINT)
                 .expect("DEFAULT_ENDPOINT is a valid URL literal"),
             clock: Arc::new(SystemClock),
+            retry: RetryPolicy::default(),
         }
+    }
+
+    /// Retry transient failures under `retry` instead of the default.
+    #[must_use]
+    pub fn with_retry(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
     }
 
     /// Post somewhere else: a proxy, or a replay server in tests.
@@ -188,14 +201,45 @@ impl PtcClient {
     /// Post `conversation`, naming `container` when there is one, and
     /// append the response. Refuses before sending if the container has
     /// expired.
+    ///
+    /// A transient failure is retried under the [`RetryPolicy`], with the
+    /// expiry check repeated before each retry, so a wait never carries a
+    /// continuation past its container.
     pub(crate) async fn exchange(
         &self,
         conversation: Conversation,
         container: Option<&Container>,
     ) -> Result<Turn, PtcError> {
-        if let Some(c) = container {
-            c.ensure_live(self.clock.now())?;
-        }
+        let mut made = 0;
+        let raw = loop {
+            if let Some(c) = container {
+                c.ensure_live(self.clock.now())?;
+            }
+            let failure = match self.post_once(&conversation, container).await {
+                Ok(raw) => break raw,
+                Err(failure) => failure,
+            };
+            let delay = match failure.transience {
+                Transience::Transient { retry_after } => self.retry.delay(made, retry_after),
+                Transience::Permanent => None,
+            };
+            let Some(delay) = delay else {
+                return Err(failure.error);
+            };
+            made += 1;
+            tracing::warn!(retry = made, of = self.retry.retries(), ?delay, error = %failure.error,
+                "transient Messages API failure; retrying");
+            tokio::time::sleep(delay).await;
+        };
+        Ok(raw.into_turn(conversation)?)
+    }
+
+    /// One POST of `conversation`, classified on failure.
+    async fn post_once(
+        &self,
+        conversation: &Conversation,
+        container: Option<&Container>,
+    ) -> Result<RawResponse, Failure> {
         let mut request = self
             .http
             .post(self.endpoint.as_str())
@@ -208,18 +252,43 @@ impl PtcClient {
             .json(&conversation.body(container.map(Container::id)))
             .send()
             .await
-            .map_err(|source| self.http_error(source))?;
+            .map_err(|source| self.http_failure(source))?;
         let status = response.status();
+        let retry_after = retry_after(response.headers());
         let body = response
             .bytes()
             .await
-            .map_err(|source| self.http_error(source))?;
+            .map_err(|source| self.http_failure(source))?;
         if !status.is_success() {
-            return Err(api_error(status.as_u16(), &body));
+            let transience = if status.as_u16() == 429 || status.is_server_error() {
+                Transience::Transient { retry_after }
+            } else {
+                Transience::Permanent
+            };
+            return Err(Failure {
+                error: api_error(status.as_u16(), &body),
+                transience,
+            });
         }
-        let raw: RawResponse =
-            serde_json::from_slice(&body).map_err(|source| PtcError::Decode { source })?;
-        Ok(raw.into_turn(conversation)?)
+        serde_json::from_slice(&body).map_err(|source| Failure {
+            error: PtcError::Decode { source },
+            transience: Transience::Permanent,
+        })
+    }
+
+    /// A transport error: transient only when no connection was made, so
+    /// the request cannot have reached the API. A timeout or a dropped
+    /// response may have been processed, and is returned.
+    fn http_failure(&self, source: reqwest::Error) -> Failure {
+        let transience = if source.is_connect() {
+            Transience::Transient { retry_after: None }
+        } else {
+            Transience::Permanent
+        };
+        Failure {
+            error: self.http_error(source),
+            transience,
+        }
     }
 
     fn http_error(&self, source: reqwest::Error) -> PtcError {
@@ -228,6 +297,30 @@ impl PtcClient {
             source,
         }
     }
+}
+
+/// A failed attempt and whether it is worth another.
+struct Failure {
+    error: PtcError,
+    transience: Transience,
+}
+
+enum Transience {
+    Transient { retry_after: Option<Duration> },
+    Permanent,
+}
+
+/// `retry-after` in its delay-seconds form. The HTTP-date form, or
+/// anything unparseable, reads as absent and falls back to backoff.
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 fn api_error(status: u16, body: &[u8]) -> PtcError {

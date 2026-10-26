@@ -10,16 +10,18 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use ferridis_adapter_fs::{FilesystemCapability, Root};
 use ferridis_adapter_sdk::AdapterServer;
 use ferridis_client::Client;
 use ferridis_client::adapters::{AdaptersFile, CallerOverrides, register_adapters};
 use ferridis_client::catalogue::{Catalogue, CatalogueSource};
-use ferridis_core::{CapabilityRef, IntentVerb, Manifest};
+use ferridis_core::{CallerPolicy, CapabilityRef, IntentVerb, Manifest};
 use ferridis_ptc::{
-    API_VERSION, ApiKey, CODE_EXECUTION_TOOL_TYPE, Clock, Conversation, Executor, MaxTokens,
-    MaxTurns, ModelId, PtcClient, PtcError, StopReason, ToolPlan, UserPrompt, WorkspaceId, run,
+    API_VERSION, ApiKey, CODE_EXECUTION_TOOL_TYPE, Clock, Conversation, Executor, MaxResultBytes,
+    MaxTokens, MaxTurns, ModelId, PtcClient, PtcError, RetryPolicy, StopReason, ToolPlan,
+    UserPrompt, WorkspaceId, run,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -92,6 +94,19 @@ fn ptc_client(server: &MockServer, now: OffsetDateTime) -> PtcClient {
     PtcClient::new(ApiKey::new("test-key".to_owned()).expect("non-empty key"))
         .with_endpoint(endpoint)
         .with_clock(Arc::new(Fixed(now)))
+        .with_retry(fast_retry())
+}
+
+/// Two retries a millisecond apart, so retry tests take no real time.
+fn fast_retry() -> RetryPolicy {
+    RetryPolicy::new(2, Duration::from_millis(1), Duration::from_millis(1)).expect("valid policy")
+}
+
+fn api_error_response(status: u16, error_type: &str) -> ResponseTemplate {
+    ResponseTemplate::new(status).set_body_json(json!({
+        "type": "error",
+        "error": { "type": error_type, "message": "try again" }
+    }))
 }
 
 /// A real fs adapter over a temp dir holding `a.txt` and `b.txt`,
@@ -404,6 +419,101 @@ async fn an_api_error_names_its_type_and_message() {
         matches!(&err, PtcError::Api { status: 400, error_type, message }
             if error_type == "invalid_request_error" && message == "Circular $ref detected"),
         "{err}"
+    );
+    assert_eq!(bodies(&server).await.len(), 1, "a 400 is not retried");
+}
+
+#[tokio::test]
+async fn transient_failures_are_retried_and_the_run_completes() {
+    let (_dir, conversation, executor) = fs_session().await;
+    let server = messages_api_raw(vec![
+        api_error_response(529, "overloaded_error"),
+        ResponseTemplate::new(200).set_body_json(paused(LIST_DIR, json!({ "path": "" }))),
+        api_error_response(429, "rate_limit_error").insert_header("retry-after", "0"),
+        ResponseTemplate::new(200).set_body_json(finished()),
+    ])
+    .await;
+    let ptc = ptc_client(&server, BEFORE_EXPIRY);
+
+    let outcome = run(&ptc, &executor, conversation, prompt(), MaxTurns::default())
+        .await
+        .expect("run completes despite a 529 and a 429");
+
+    assert_eq!(outcome.final_turn().stop_reason(), &StopReason::EndTurn);
+    assert_eq!(outcome.calls().programmatic(), 1);
+    let requests = bodies(&server).await;
+    assert_eq!(requests.len(), 4);
+    assert_eq!(
+        requests[0].1, requests[1].1,
+        "the opening request is resent unchanged"
+    );
+    assert_eq!(
+        requests[2].1, requests[3].1,
+        "the continuation is resent unchanged"
+    );
+}
+
+#[tokio::test]
+async fn retries_stop_at_the_policy_and_return_the_last_error() {
+    let (_dir, conversation, executor) = fs_session().await;
+    let server = messages_api_raw(vec![api_error_response(500, "api_error"); 4]).await;
+    let ptc = ptc_client(&server, BEFORE_EXPIRY);
+
+    let err = run(&ptc, &executor, conversation, prompt(), MaxTurns::default())
+        .await
+        .expect_err("every attempt fails");
+
+    assert!(matches!(&err, PtcError::Api { status: 500, .. }), "{err}");
+    assert_eq!(
+        bodies(&server).await.len(),
+        3,
+        "the first attempt and two retries"
+    );
+}
+
+#[tokio::test]
+async fn the_direct_limit_does_not_cap_a_result_going_to_code() {
+    let (_dir, conversation, executor) = fs_session().await;
+    let executor = executor.with_max_result(
+        CallerPolicy::Direct,
+        MaxResultBytes::new(16).expect("non-zero limit"),
+    );
+    let server = messages_api(vec![paused(LIST_DIR, json!({ "path": "" })), finished()]).await;
+    let ptc = ptc_client(&server, BEFORE_EXPIRY);
+
+    let outcome = run(&ptc, &executor, conversation, prompt(), MaxTurns::default())
+        .await
+        .expect("run completes");
+
+    assert_eq!(outcome.calls().oversized(), 0);
+    let requests = bodies(&server).await;
+    let result = &last_message(&requests[1].1)["content"][0];
+    assert!(result["is_error"] != true, "{result}");
+}
+
+#[tokio::test]
+async fn an_oversized_result_becomes_an_error_result_naming_its_size() {
+    let (_dir, conversation, executor) = fs_session().await;
+    let executor = executor.with_max_result(
+        CallerPolicy::Code,
+        MaxResultBytes::new(16).expect("non-zero limit"),
+    );
+    let server = messages_api(vec![paused(LIST_DIR, json!({ "path": "" })), finished()]).await;
+    let ptc = ptc_client(&server, BEFORE_EXPIRY);
+
+    let outcome = run(&ptc, &executor, conversation, prompt(), MaxTurns::default())
+        .await
+        .expect("run completes");
+
+    assert_eq!(outcome.calls().oversized(), 1);
+    let requests = bodies(&server).await;
+    let result = &last_message(&requests[1].1)["content"][0];
+    assert_eq!(result["is_error"], true, "{result}");
+    let text = result["content"].as_str().expect("error text");
+    assert!(text.contains("over the 16-byte result limit"), "{text}");
+    assert!(
+        !text.contains("a.txt"),
+        "no part of the listing is sent: {text}"
     );
 }
 

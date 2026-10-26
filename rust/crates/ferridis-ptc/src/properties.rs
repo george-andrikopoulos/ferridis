@@ -25,12 +25,12 @@ use crate::request::{Conversation, MaxTokens, ModelId};
 use crate::response::{CallHandler, PendingCall, RawResponse, ToolOutput, Turn};
 use crate::tools::ToolPlan;
 
-const CODE_TOOL: &str = "ferridis_ferridis_fs_v1_read_file";
+pub(crate) const CODE_TOOL: &str = "ferridis_ferridis_fs_v1_read_file";
 const DIRECT_TOOL: &str = "ferridis_ferridis_fs_v1_list_dir";
 const UNKNOWN_TOOL: &str = "ferridis_not_registered";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TestCaller {
+pub(crate) enum TestCaller {
     Direct,
     Code,
     Unrecognised,
@@ -46,7 +46,7 @@ impl TestCaller {
     }
 }
 
-fn plan() -> ToolPlan {
+pub(crate) fn plan() -> ToolPlan {
     let manifest = Manifest::parse(
         r#"{
             "ferridis_version": "0.1",
@@ -76,7 +76,7 @@ fn conversation(plan: &ToolPlan) -> Conversation {
 }
 
 /// A paused response in the documented shape, one `tool_use` per call.
-fn paused_response(calls: &[(&str, TestCaller)]) -> Value {
+pub(crate) fn paused_response(calls: &[(&str, TestCaller)]) -> Value {
     let mut content = vec![
         json!({ "type": "text", "text": "Running code." }),
         json!({ "type": "server_tool_use", "id": "srvtoolu_p", "name": "code_execution",
@@ -94,7 +94,7 @@ fn paused_response(calls: &[(&str, TestCaller)]) -> Value {
     })
 }
 
-fn parse(response: &Value, plan: &ToolPlan) -> Turn {
+pub(crate) fn parse(response: &Value, plan: &ToolPlan) -> Turn {
     RawResponse::deserialize(response)
         .expect("documented shape decodes")
         .into_turn(conversation(plan))
@@ -164,6 +164,7 @@ impl CallHandler for Alternating {
 /// Sync-to-async glue for the synchronous proptest bodies.
 fn run_to_completion<F: std::future::Future>(f: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
+        .enable_time()
         .build()
         .expect("test runtime builds")
         .block_on(f) // allow:block-on — proptest bodies are synchronous; this is the top of the stack

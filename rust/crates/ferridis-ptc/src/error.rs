@@ -29,6 +29,23 @@ pub enum ParameterError {
     /// The workspace ID is empty.
     #[error("the workspace ID is empty")]
     EmptyWorkspaceId,
+    /// The first retry delay is zero.
+    #[error("the first retry delay must be above zero")]
+    ZeroRetryDelay,
+    /// The retry delay cap is below the first delay.
+    #[error("the retry delay cap {cap:?} is below the first delay {base:?}")]
+    RetryCapBelowBase {
+        /// The first delay.
+        base: std::time::Duration,
+        /// The cap.
+        cap: std::time::Duration,
+    },
+    /// The tool result size limit is zero.
+    #[error("the tool result size limit must be at least 1 byte")]
+    ZeroResultLimit,
+    /// The per-call deadline is zero.
+    #[error("the per-call deadline must be above zero")]
+    ZeroCallDeadline,
 }
 
 /// A Messages API response that breaks the programmatic-tool-calling

@@ -202,6 +202,14 @@ Design gate: decisions PTC-1, PTC-2 and PTC-3 in the [architecture.md](./archite
   - [x] The first attempt was refused with a 400 for a key not scoped to a workspace: `PtcClient::with_workspace` / `WorkspaceId` added, sending `anthropic-workspace-id`, pinned by a replay test.
 - [x] README "What runs today": programmatic tool calling entry added after the live run.
 
+PTC hardening, found in the post-build critique (2026-10-25), done 2026-10-26 (rows in FEATURES.md § Programmatic tool calling):
+
+- [x] Retry on `429` / `5xx` / connection failures under `RetryPolicy`, honouring `retry-after` up to 60 s; container expiry re-checked before each retry.
+- [x] Size-cap each `tool_result` per caller (`MaxResultBytes`: 128 KiB direct, 1 MiB to code); an oversized result is an error result naming its size, not a truncation.
+- [x] Per-call deadline (`CallDeadline`, 180 s) answering with an error result before the API's ~4-minute pending-call limit.
+
+These three paths are pinned by replay and unit tests only; the live smoke test does not exercise them (a 429 or 529 cannot be produced on demand).
+
 Out of scope for PTC (separate items, not started):
 
 - [ ] Move `ferridis-mcp-server` from MCP 2024-11-05 to a current spec (`outputSchema` / `structuredContent`).

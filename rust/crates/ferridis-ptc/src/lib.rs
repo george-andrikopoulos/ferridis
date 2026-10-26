@@ -33,6 +33,7 @@ mod ids;
 mod policy;
 mod request;
 mod response;
+mod retry;
 mod tools;
 
 #[cfg(test)]
@@ -43,7 +44,9 @@ pub use client::{
 };
 pub use container::{Clock, Container, ContainerExpiry, SystemClock};
 pub use error::{ParameterError, PtcError, ResponseError};
-pub use executor::{CallCounts, Dispatcher, Executor, MaxTurns, RunOutcome, run};
+pub use executor::{
+    CallCounts, CallDeadline, Dispatcher, Executor, MaxResultBytes, MaxTurns, RunOutcome, run,
+};
 pub use ids::{ContainerId, ServerToolUseId, ToolUseId};
 pub use policy::{PolicySource, ResolvedPolicy, SchemaHazard};
 pub use request::{
@@ -54,4 +57,5 @@ pub use response::{
     PausedTurn, PendingCall, PendingCalls, PendingDirectCalls, PendingProgrammaticCalls,
     StopReason, ToolOutput, ToolResultsMessage, Turn, Usage, WithContainer,
 };
+pub use retry::{RETRY_AFTER_LIMIT, RetryPolicy};
 pub use tools::{CODE_EXECUTION_TOOL_TYPE, PlannedTool, ToolPlan, ToolSet};
