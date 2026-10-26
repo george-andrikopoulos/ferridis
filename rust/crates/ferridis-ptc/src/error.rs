@@ -26,6 +26,9 @@ pub enum ParameterError {
     /// The API key is empty.
     #[error("the API key is empty")]
     EmptyApiKey,
+    /// The workspace ID is empty.
+    #[error("the workspace ID is empty")]
+    EmptyWorkspaceId,
 }
 
 /// A Messages API response that breaks the programmatic-tool-calling

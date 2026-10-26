@@ -19,7 +19,7 @@ use ferridis_client::catalogue::{Catalogue, CatalogueSource};
 use ferridis_core::{CapabilityRef, IntentVerb, Manifest};
 use ferridis_ptc::{
     API_VERSION, ApiKey, CODE_EXECUTION_TOOL_TYPE, Clock, Conversation, Executor, MaxTokens,
-    MaxTurns, ModelId, PtcClient, PtcError, StopReason, ToolPlan, UserPrompt, run,
+    MaxTurns, ModelId, PtcClient, PtcError, StopReason, ToolPlan, UserPrompt, WorkspaceId, run,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -206,6 +206,29 @@ fn last_message(body: &Value) -> &Value {
 }
 
 #[tokio::test]
+async fn a_configured_workspace_is_sent_on_every_request() {
+    let (_dir, conversation, executor) = fs_session().await;
+    let server = messages_api(vec![paused(LIST_DIR, json!({ "path": "" })), finished()]).await;
+    let ptc = ptc_client(&server, BEFORE_EXPIRY)
+        .with_workspace(WorkspaceId::new("wrkspc_replay").expect("non-empty id"));
+
+    run(&ptc, &executor, conversation, prompt(), MaxTurns::default())
+        .await
+        .expect("run completes");
+
+    let requests = bodies(&server).await;
+    assert_eq!(requests.len(), 2);
+    for (req, _) in &requests {
+        assert_eq!(
+            req.headers
+                .get("anthropic-workspace-id")
+                .map(|v| v.to_str().ok()),
+            Some(Some("wrkspc_replay"))
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_programmatic_call_round_trips_through_a_real_adapter() {
     let (_dir, conversation, executor) = fs_session().await;
     let server = messages_api(vec![paused(LIST_DIR, json!({ "path": "" })), finished()]).await;
@@ -242,6 +265,10 @@ async fn a_programmatic_call_round_trips_through_a_real_adapter() {
             .get("anthropic-version")
             .map(|v| v.to_str().ok()),
         Some(Some(API_VERSION))
+    );
+    assert!(
+        first_req.headers.get("anthropic-workspace-id").is_none(),
+        "no workspace configured, so no workspace header"
     );
 
     // The tools array: code execution offered, policies projected, no

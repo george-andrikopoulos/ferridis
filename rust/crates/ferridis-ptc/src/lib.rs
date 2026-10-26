@@ -38,7 +38,9 @@ mod tools;
 #[cfg(test)]
 mod properties;
 
-pub use client::{API_KEY_VAR, API_VERSION, ApiKey, DEFAULT_ENDPOINT, PtcClient};
+pub use client::{
+    API_KEY_VAR, API_VERSION, ApiKey, DEFAULT_ENDPOINT, PtcClient, WORKSPACE_ID_VAR, WorkspaceId,
+};
 pub use container::{Clock, Container, ContainerExpiry, SystemClock};
 pub use error::{ParameterError, PtcError, ResponseError};
 pub use executor::{CallCounts, Dispatcher, Executor, MaxTurns, RunOutcome, run};

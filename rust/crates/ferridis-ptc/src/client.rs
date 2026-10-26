@@ -21,6 +21,10 @@ pub const DEFAULT_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 /// The environment variable [`ApiKey::from_env`] reads.
 pub const API_KEY_VAR: &str = "ANTHROPIC_API_KEY";
 
+/// The environment variable [`WorkspaceId::from_env`] reads, as the
+/// Anthropic CLI does.
+pub const WORKSPACE_ID_VAR: &str = "ANTHROPIC_WORKSPACE_ID";
+
 /// Upper bound on one request. A pending programmatic call times out
 /// server-side after about four minutes, so a response that takes longer
 /// than this is not coming.
@@ -62,11 +66,52 @@ impl std::fmt::Debug for ApiKey {
     }
 }
 
+/// The workspace a request runs in, sent as `anthropic-workspace-id`.
+/// Required with a personal or service-account key that is not scoped
+/// to a workspace; a workspace-scoped key needs none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceId(String);
+
+impl WorkspaceId {
+    /// Accept a non-empty ID.
+    ///
+    /// # Errors
+    ///
+    /// [`ParameterError::EmptyWorkspaceId`].
+    pub fn new(raw: impl Into<String>) -> Result<Self, ParameterError> {
+        let raw = raw.into();
+        if raw.trim().is_empty() {
+            return Err(ParameterError::EmptyWorkspaceId);
+        }
+        Ok(Self(raw))
+    }
+
+    /// Read [`WORKSPACE_ID_VAR`]: `None` when unset, as for a
+    /// workspace-scoped key.
+    ///
+    /// # Errors
+    ///
+    /// [`ParameterError::EmptyWorkspaceId`] when set but empty.
+    pub fn from_env() -> Result<Option<Self>, ParameterError> {
+        std::env::var(WORKSPACE_ID_VAR)
+            .ok()
+            .map(Self::new)
+            .transpose()
+    }
+
+    /// The ID.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A Messages API client for programmatic-tool-calling conversations.
 #[derive(Debug, Clone)]
 pub struct PtcClient {
     http: reqwest::Client,
     api_key: ApiKey,
+    workspace: Option<WorkspaceId>,
     endpoint: Url,
     clock: Arc<dyn Clock>,
 }
@@ -97,6 +142,7 @@ impl PtcClient {
                 .build()
                 .expect("reqwest client with a timeout and the workspace TLS backend builds"),
             api_key,
+            workspace: None,
             endpoint: Url::parse(DEFAULT_ENDPOINT)
                 .expect("DEFAULT_ENDPOINT is a valid URL literal"),
             clock: Arc::new(SystemClock),
@@ -107,6 +153,13 @@ impl PtcClient {
     #[must_use]
     pub fn with_endpoint(mut self, endpoint: Url) -> Self {
         self.endpoint = endpoint;
+        self
+    }
+
+    /// Run every request in `workspace`.
+    #[must_use]
+    pub fn with_workspace(mut self, workspace: WorkspaceId) -> Self {
+        self.workspace = Some(workspace);
         self
     }
 
@@ -143,11 +196,15 @@ impl PtcClient {
         if let Some(c) = container {
             c.ensure_live(self.clock.now())?;
         }
-        let response = self
+        let mut request = self
             .http
             .post(self.endpoint.as_str())
             .header("x-api-key", self.api_key.0.expose_secret())
-            .header("anthropic-version", API_VERSION)
+            .header("anthropic-version", API_VERSION);
+        if let Some(w) = &self.workspace {
+            request = request.header("anthropic-workspace-id", w.as_str());
+        }
+        let response = request
             .json(&conversation.body(container.map(Container::id)))
             .send()
             .await

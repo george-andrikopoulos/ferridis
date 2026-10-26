@@ -6,6 +6,8 @@
 //!     adapters.json "Read every file under the root and total their line counts."
 //! ```
 //!
+//! A key not scoped to a workspace also needs `ANTHROPIC_WORKSPACE_ID`.
+//!
 //! This spends tokens: one conversation is a few Messages API requests
 //! at the default model's rates, plus code-execution container time.
 //! Make a tool code-callable with the adapters file's `callers` map or the
@@ -23,7 +25,7 @@ use ferridis_client::adapters::{AdaptersFile, register_adapters};
 use ferridis_client::catalogue::Catalogue;
 use ferridis_ptc::{
     ApiKey, CodeRun, Conversation, Executor, MaxTokens, MaxTurns, ModelId, PtcClient, ToolPlan,
-    UserPrompt, run,
+    UserPrompt, WorkspaceId, run,
 };
 
 #[tokio::main]
@@ -78,7 +80,10 @@ async fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         plan.tool_set(),
     );
     let executor = Executor::new(plan, client);
-    let ptc = PtcClient::new(ApiKey::from_env()?);
+    let mut ptc = PtcClient::new(ApiKey::from_env()?);
+    if let Some(w) = WorkspaceId::from_env()? {
+        ptc = ptc.with_workspace(w);
+    }
 
     let outcome = run(&ptc, &executor, conversation, prompt, MaxTurns::default()).await?;
     for run in outcome.final_turn().code_runs() {

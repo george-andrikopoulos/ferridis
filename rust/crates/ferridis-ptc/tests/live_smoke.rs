@@ -9,16 +9,15 @@
 //!     cargo test -p ferridis-ptc --test live_smoke -- --ignored --nocapture
 //! ```
 //!
-//! **Cost, estimated (not yet measured):** three to four requests to
-//! `claude-opus-5-5` at $4 / $20 per million input / output tokens. About
-//! 15–20K input tokens (the code-execution tool's own prompt, five tool
-//! definitions, and the history re-sent each turn; results of
-//! programmatic calls are not counted as tokens) and 1–3K output tokens
-//! including adaptive thinking, which this model cannot turn off. That is
-//! roughly $0.10–0.15 per run. Container time is free within an
-//! organisation's 1,550 monthly hours and $0.05 per hour beyond; a run
-//! uses a few minutes at most. The test prints the measured token usage
-//! so the estimate can be replaced with a figure.
+//! A key not scoped to a workspace also needs `ANTHROPIC_WORKSPACE_ID`.
+//!
+//! **Cost, measured 2026-10-26:** 5 requests to `claude-opus-5-5`
+//! (4 programmatic calls, each answered in its own continuation),
+//! 10,835 input and 215 output tokens. At $4 / $20 per million that is
+//! about $0.05 per run, against a pre-run estimate of $0.10–0.15. The run
+//! took 10 s; container time is free within an organisation's 1,550
+//! monthly hours and $0.05 per hour beyond. The test prints its token
+//! usage, so a later run can be checked against this figure.
 
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ use ferridis_client::adapters::{AdaptersFile, register_adapters};
 use ferridis_client::catalogue::Catalogue;
 use ferridis_ptc::{
     ApiKey, Conversation, Executor, MaxTokens, MaxTurns, ModelId, PtcClient, StopReason, ToolPlan,
-    UserPrompt, run,
+    UserPrompt, WorkspaceId, run,
 };
 use serde_json::json;
 use tempfile::TempDir;
@@ -86,8 +85,14 @@ async fn live_programmatic_calls_reach_a_real_adapter() {
     )
     .expect("non-empty prompt");
 
+    let mut ptc = PtcClient::new(api_key);
+    if let Some(w) =
+        WorkspaceId::from_env().expect("ANTHROPIC_WORKSPACE_ID, when set, is non-empty")
+    {
+        ptc = ptc.with_workspace(w);
+    }
     let outcome = run(
-        &PtcClient::new(api_key),
+        &ptc,
         &executor,
         conversation,
         prompt,

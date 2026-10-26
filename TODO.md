@@ -195,11 +195,12 @@ Design gate: decisions PTC-1, PTC-2 and PTC-3 in the [architecture.md](./archite
   - [x] `ferridis-client`: `CatalogueEntry::declared_callers`, `ToolName::parse`, `CallOrigin` + `dispatch_from` / `dispatch_streaming_from` (caller on the tier-used record)
   - [x] `ferridis-ptc`: policy resolution with `$ref` downgrade, tools projection (no `strict`), `PendingCalls<WithContainer|NoContainer>` typestate, `ContainerId`/`ContainerExpiry` with refusal after expiry, two-way caller gate in `Executor`, `run` with `MaxTurns`
 - [x] **Step 4 — tests** (no tokens spent by default). Every pin drilled by cutting its wiring, 2026-10-25.
-  - [x] wiremock replay (`tests/replay.rs`, 6 tests) against a real in-process fs adapter. Fixtures are **transcribed from the documented response shapes**, not recorded; recording real responses would need the live run below
+  - [x] wiremock replay (`tests/replay.rs`, 7 tests, including the workspace header added 2026-10-26) against a real in-process fs adapter. Fixtures are **transcribed from the documented response shapes**, not recorded; recording real responses would need the live run below
   - [x] property tests (`src/properties.rs`): one result per programmatic call and nothing else in the continuation; a refusal never reaches the dispatcher
   - [x] one `#[ignore]`'d live smoke test (`tests/live_smoke.rs`), gated on `FERRIDIS_PTC_LIVE=1` + `ANTHROPIC_API_KEY`, cost estimated in its header
-- [ ] **Run the live smoke test once** (George's call: about $0.10–0.15). Replace the estimate in `live_smoke.rs` with the measured usage it prints, and flip the FEATURES.md live row from **NOTHING YET — exposed**.
-- [ ] README "What runs today": update only after the end-to-end live run works.
+- [x] **Run the live smoke test once** — passed 2026-10-26: 5 turns, 4 programmatic calls, answer `100`, 10,835 input / 215 output tokens (about $0.05; the estimate was $0.10–0.15). Measured figure is in `live_smoke.rs`; the FEATURES.md live row is ✅.
+  - [x] The first attempt was refused with a 400 for a key not scoped to a workspace: `PtcClient::with_workspace` / `WorkspaceId` added, sending `anthropic-workspace-id`, pinned by a replay test.
+- [x] README "What runs today": programmatic tool calling entry added after the live run.
 
 Out of scope for PTC (separate items, not started):
 
