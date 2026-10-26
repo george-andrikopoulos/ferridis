@@ -306,12 +306,10 @@ Windows version since Vista. No configuration required.
 ## Verifying the build
 
 ```bash
-cd rust
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+bash scripts/check.sh
 ```
 
-Expected: all tests pass, clippy clean. See [TODO.md](./TODO.md) for the authoritative
+This runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` from `rust/`, reports each stage's exit status, and exits non-zero if any failed. It is the project's only gate: hosted CI is switched off. Expected: `PASS: rustfmt, clippy, test`. See [TODO.md](./TODO.md) for the authoritative
 test count after each milestone.
 
 ---

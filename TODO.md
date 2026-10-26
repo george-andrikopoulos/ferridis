@@ -32,6 +32,7 @@ Actionable items in priority order. Cross off as you finish them. The detailed t
 - [x] `cargo test --workspace` — full test suite passes across all 15 crates (see FEATURES.md for per-crate breakdown)
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` — zero warnings
 - [x] `bash cleanup.sh` — root-level leftovers removed
+- `bash scripts/check.sh` runs the three gate stages above (fmt, clippy, test) in one go. It replaced hosted CI on 2026-10-26.
 
 ## Implementation (in build order)
 
@@ -221,6 +222,8 @@ Out of scope for PTC (separate items, not started):
 - [x] **Workspace versioned 0.7.0.** It had read 0.1.0 since the first commit, so `ferridis-mcp-server` announced itself as 0.1.0 in `serverInfo`. The four `ferridis-adapter-fs` dev-dependency pins moved with it.
 - [x] **Tagged `v0.7.0` (2bf9a07) and published the GitHub release** from RELEASE-v0.7.md, links pinned to the tag, with `ferridis-0.3.0.vsix` attached. CI green on Ubuntu and Windows first. The repository's first tag and first release.
 - [x] **Redeployed the maintainer's Windows service from 2bf9a07** with `deploy-v0.7.0.ps1`, which keeps the bearer token. `serverInfo.version` went 0.1.0 → 0.7.0; 112 tools before and after; kept token 200, no token 401. The installed VS Code extension 0.3.0 is byte-identical to the release build, so it was not reinstalled.
+- [x] **Hosted CI switched off; the gate runs locally (2026-10-26).** GitHub Actions disabled in the repository settings and the CI workflow disabled; `ci.yml` now triggers only on `workflow_dispatch`. `bash scripts/check.sh` runs the same stages. First local run: Windows (see below).
+- [ ] **Linux leg of the local gate.** CI covered Ubuntu and Windows; locally only Windows has run. WSL Ubuntu has cargo but lacks `libdbus-1-dev` / `pkg-config` and the pinned 1.95.0 toolchain. Install those and run `bash scripts/check.sh` there.
 
 ## VS Code service mode, and v0.7 on the Windows service (2026-10-26)
 

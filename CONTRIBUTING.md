@@ -26,14 +26,13 @@ Hard rules in the workspace:
 - All public APIs documented with rustdoc.
 - Tests demonstrate the discipline working — especially the "this would be a compile error" cases.
 
-Run before submitting:
+Run before submitting (there is no hosted CI, so this is the gate):
 
 ```bash
-cd rust
-cargo fmt --all
-cargo clippy --workspace -- -D warnings
-cargo test --workspace
+bash scripts/check.sh   # cargo fmt --check, clippy on all targets with -D warnings, cargo test
 ```
+
+If rustfmt complains, `cd rust && cargo fmt --all` fixes it. Run the gate on Linux and on Windows if you can reach both: some breaks show on only one of them.
 
 ## What changes are most welcome
 

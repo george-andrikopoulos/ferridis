@@ -1,9 +1,13 @@
 name: CI
 
+# Hosted CI is switched off (2026-10-26): the maintainer runs the same gate
+# locally with `bash scripts/check.sh`. Actions is also disabled in the repo
+# settings, so even a manual dispatch does nothing until it is re-enabled there.
+# To bring CI back: re-enable Actions, then restore
+#   push: { branches: [main] }
+#   pull_request:
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref so only the latest push is graded.
 concurrency:
