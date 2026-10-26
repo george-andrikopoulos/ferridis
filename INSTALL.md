@@ -92,7 +92,9 @@ systemctl --user enable --now ferridis-discovery-broker
 ```
 
 The broker persists pinned registrations to `~/.local/share/ferridis/discovery.json`
-and restores them automatically on restart.
+and restores them automatically on restart. Without `HOME` it uses
+`%LOCALAPPDATA%\Ferridis\discovery.json`, and with neither set it refuses to start
+until `--state-file <path>` is given.
 
 ### Keyring backend — Linux
 
@@ -286,6 +288,68 @@ Register-ScheduledTask -TaskName "FerridisDiscoveryBroker" `
 
 Alternatively, use [NSSM](https://nssm.cc) to wrap the binary as a Windows Service.
 
+### MCP server — Windows service (WinSW)
+
+To serve one Ferridis federation to every client on the machine (Claude Code, the
+VS Code extension's service mode, scripts), run `ferridis-mcp-server` with
+`--http-bind` as a Windows service. [WinSW](https://github.com/winsw/winsw) wraps the
+binary: its executable, renamed (e.g. `ferridis-service.exe`), sits beside an XML file
+of the same name.
+
+```xml
+<service>
+  <id>FerridisMCP</id>
+  <name>Ferridis MCP</name>
+  <executable>%BASE%\ferridis-mcp-server.exe</executable>
+  <arguments>--adapters-config "%BASE%\adapters.json" --http-bind 127.0.0.1:7820 --bearer-token-file "%BASE%\bearer.token"</arguments>
+  <env name="RUST_LOG" value="info" />
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec" />
+  <log mode="roll" />
+</service>
+```
+
+Install with `ferridis-service.exe install`, start with `ferridis-service.exe start`
+(both elevated). Notes on the choices:
+
+- **`%BASE%`, not `%LOCALAPPDATA%`.** WinSW expands `%BASE%` to the folder holding the
+  wrapper. Environment variables expand in the *service's* environment, so under
+  LocalSystem `%LOCALAPPDATA%` is SYSTEM's profile, not yours. Keep the wrapper, the
+  binary, `adapters.json` and the token file in one folder, or write absolute paths.
+
+- **`--bearer-token-file`, not the token in the XML.** WinSW XML is plain text, and
+  `--bearer-token` or an `<env name="FERRIDIS_MCP_BEARER">` entry would put the token
+  there. The file holds one token on one line; surrounding whitespace is trimmed.
+  Restrict it to Administrators and SYSTEM (`icacls bearer.token /inheritance:r
+  /grant:r Administrators:F SYSTEM:R`). The server refuses a file combined with
+  `--bearer-token` or `FERRIDIS_MCP_BEARER`, so remove any old `<env>` entry when
+  switching.
+- **The account.** WinSW runs the service as LocalSystem unless the XML names another
+  account. Choose it from the adapters: one that spawns a stdio MCP server needing
+  elevation fails with `os error 740` under a user account, and its tools are
+  skipped. Under LocalSystem, keychain entries live in SYSTEM's Credential Manager,
+  not yours.
+- **Loopback only.** Bind `127.0.0.1`. Put a TLS-terminating proxy or tunnel in front
+  before exposing the port to another host.
+
+**Clients.** Claude Code: `claude mcp add --transport http ferridis
+http://127.0.0.1:7820/mcp --header "Authorization: Bearer <token>"`. VS Code: set
+`ferridis.serverUrl` and run **Ferridis: Set Service Token** (see
+[editors/vscode/README.md](./editors/vscode/README.md)). Every client holds the same
+token, so rotating it means updating each one.
+
+**Redeploying.** Build the release binaries, then:
+
+1. Back up the current executables, the XML and the token file.
+2. `ferridis-service.exe stop`, copy the new `ferridis-mcp-server.exe` in, then
+   `ferridis-service.exe start`.
+3. Probe: a request carrying the token gets `200`, and one without it gets `401`. A
+   `tools/list` returns at least as many tools as before the swap.
+4. If any probe fails, restore the backup and start the service again.
+
+Keeping the token across a redeploy keeps every client connected. Rotate it only on
+purpose, because each client then needs the new value.
+
 ### Keychain backend — Windows
 
 The wallet uses **Windows Credential Manager** (`wincred.h`), which is built into every
@@ -300,6 +364,7 @@ Windows version since Vista. No configuration required.
 | `FERRIDIS_WALLET_MEMORY=1` | Use an in-memory wallet instead of the OS keychain (tests / CI only — not persisted) | unset |
 | `FERRIDIS_KEYCHAIN_NAMESPACE` | Namespace prefix for wallet entries in the OS keychain | `ferridis` |
 | `RUST_LOG` | Log level (`error`, `warn`, `info`, `debug`, `trace`) | `warn` |
+| `FERRIDIS_MCP_BEARER` | Static bearer for `ferridis-mcp-server --http-bind`, instead of `--bearer-token`. Prefer `--bearer-token-file` for a service | unset |
 
 ---
 

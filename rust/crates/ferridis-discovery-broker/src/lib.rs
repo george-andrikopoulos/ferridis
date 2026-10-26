@@ -2,4 +2,5 @@
 //! and future embedding.
 
 pub mod routes;
+pub mod state_path;
 pub mod store;

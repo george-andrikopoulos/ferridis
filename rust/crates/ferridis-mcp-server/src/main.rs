@@ -38,6 +38,7 @@
 // context and we don't want to box it everywhere just to hush clippy.
 #![allow(clippy::result_large_err)]
 
+mod bearer;
 mod http_transport;
 mod oauth_server;
 mod protocol;
@@ -252,7 +253,8 @@ enum Transport {
     /// Cursor, etc.) speak.
     Stdio,
     /// MCP Streamable HTTP — `POST /mcp`. Auth is either a static
-    /// bearer (set by `--bearer-token` / `FERRIDIS_MCP_BEARER`) or
+    /// bearer (set by `--bearer-token`, `--bearer-token-file` or
+    /// `FERRIDIS_MCP_BEARER`) or
     /// OAuth-issued access tokens (set by `--oauth-public-base-url`),
     /// or both. At least one must be configured.
     Http {
@@ -271,6 +273,7 @@ impl Args {
         let mut keychain_namespace: Option<String> = None;
         let mut http_bind: Option<std::net::SocketAddr> = None;
         let mut bearer_cli: Option<String> = None;
+        let mut bearer_file: Option<PathBuf> = None;
         let mut oauth_public_base_url: Option<String> = None;
         let mut discovery_broker: Option<Url> = None;
         let mut args = std::env::args().skip(1);
@@ -299,6 +302,12 @@ impl Args {
                         .next()
                         .ok_or_else(|| "--bearer-token expects a value".to_string())?;
                     bearer_cli = Some(v);
+                }
+                "--bearer-token-file" => {
+                    let v = args
+                        .next()
+                        .ok_or_else(|| "--bearer-token-file expects a path".to_string())?;
+                    bearer_file = Some(PathBuf::from(v));
                 }
                 "--oauth-public-base-url" => {
                     let v = args
@@ -340,6 +349,11 @@ impl Args {
                 if bearer_cli.is_some() {
                     return Err("--bearer-token is only meaningful with --http-bind".to_string());
                 }
+                if bearer_file.is_some() {
+                    return Err(
+                        "--bearer-token-file is only meaningful with --http-bind".to_string()
+                    );
+                }
                 if oauth_public_base_url.is_some() {
                     return Err(
                         "--oauth-public-base-url is only meaningful with --http-bind".to_string(),
@@ -348,16 +362,27 @@ impl Args {
                 Transport::Stdio
             }
             Some(bind) => {
-                let bearer = bearer_cli.or_else(|| std::env::var("FERRIDIS_MCP_BEARER").ok());
+                let inline = bearer_cli.or_else(|| std::env::var("FERRIDIS_MCP_BEARER").ok());
                 let oauth_issuer = oauth_public_base_url
                     .or_else(|| std::env::var("FERRIDIS_OAUTH_PUBLIC_BASE_URL").ok());
 
-                let bearer = match bearer.as_deref() {
-                    Some(s) if s.trim().is_empty() => {
+                // A file and an inline value together is refused, not
+                // ranked: whichever lost would be a credential the
+                // operator believes is in force and is not.
+                let bearer = match (bearer_file, inline.as_deref()) {
+                    (Some(_), Some(_)) => {
+                        return Err("--bearer-token-file cannot be combined with \
+                             --bearer-token or FERRIDIS_MCP_BEARER; give the bearer one source"
+                            .to_string());
+                    }
+                    (Some(path), None) => {
+                        Some(bearer::read_bearer_file(&path).map_err(|e| e.to_string())?)
+                    }
+                    (None, Some(s)) if s.trim().is_empty() => {
                         return Err("bearer token must not be empty".to_string());
                     }
-                    Some(s) => Some(secrecy::SecretString::new(s.to_string())),
-                    None => None,
+                    (None, Some(s)) => Some(secrecy::SecretString::new(s.to_string())),
+                    (None, None) => None,
                 };
                 let oauth_issuer = match oauth_issuer {
                     Some(s) => {
@@ -380,7 +405,7 @@ impl Args {
 
                 if bearer.is_none() && oauth_issuer.is_none() {
                     return Err("--http-bind requires at least one auth path: \
-                         --bearer-token / FERRIDIS_MCP_BEARER (static bearer) \
+                         --bearer-token / --bearer-token-file / FERRIDIS_MCP_BEARER (static bearer) \
                          and/or --oauth-public-base-url / FERRIDIS_OAUTH_PUBLIC_BASE_URL \
                          (OAuth 2.1 server, claude.ai-compatible). \
                          Refusing to publish unauthenticated."
@@ -434,6 +459,11 @@ impl Args {
             "  --bearer-token <token>      Static bearer required on `Authorization` header."
         );
         eprintln!("                              (also FERRIDIS_MCP_BEARER env var)");
+        eprintln!("  --bearer-token-file <path>  Read the static bearer from a file (one token,");
+        eprintln!("                              surrounding whitespace trimmed), so a service");
+        eprintln!("                              config names a path instead of holding the");
+        eprintln!("                              token. Cannot be combined with --bearer-token");
+        eprintln!("                              or FERRIDIS_MCP_BEARER.");
         eprintln!("  --oauth-public-base-url URL Enable OAuth 2.1 + PKCE + DCR endpoints on the");
         eprintln!("                              listener. URL is the externally-facing base URL");
         eprintln!("                              (e.g. https://<tunnel>/), advertised as `issuer`");

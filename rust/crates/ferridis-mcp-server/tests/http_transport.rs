@@ -313,3 +313,123 @@ async fn publisher_refuses_http_bind_without_bearer() {
         "stderr should mention bearer; got: {stderr}"
     );
 }
+
+#[tokio::test]
+async fn publisher_reads_the_bearer_from_a_file() {
+    // The service-manager path: the launch configuration names a file,
+    // and the token itself never appears on the command line or in the
+    // environment. A trailing CRLF (Notepad, PowerShell `Set-Content`)
+    // must not become part of the token.
+    let work = TempDir::new().unwrap();
+    let adapter_addr = spin_httpy_adapter().await;
+    let cfg_path = write_adapters_config(&work, adapter_addr);
+    let token_path = work.path().join("bearer.token");
+    std::fs::write(&token_path, "file-bearer-xyz\r\n").unwrap();
+
+    let port = ephemeral_port();
+    let bind: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let mut child = Command::new(binary_path())
+        .arg("--adapters-config")
+        .arg(&cfg_path)
+        .arg("--http-bind")
+        .arg(bind.to_string())
+        .arg("--bearer-token-file")
+        .arg(&token_path)
+        .env("FERRIDIS_WALLET_MEMORY", "1")
+        .env_remove("FERRIDIS_MCP_BEARER")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("spawn ferridis-mcp-server --bearer-token-file");
+    wait_until_listening(bind).await;
+
+    let client = reqwest::Client::new();
+    let url = format!("http://{bind}/mcp");
+    let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+
+    let resp = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(ping)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "no bearer must 401");
+
+    let resp = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .header("authorization", "Bearer file-bearer-xyz")
+        .body(ping)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "the token from the file must authorize");
+
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+}
+
+#[tokio::test]
+async fn publisher_refuses_a_bearer_file_beside_another_bearer_source() {
+    // Two sources for one credential is refused rather than ranked: a
+    // silent precedence would let a stale env var or argument win over
+    // the file the operator thinks is in force. The refusal must not
+    // echo either token.
+    let work = TempDir::new().unwrap();
+    let adapter_addr = spin_httpy_adapter().await;
+    let cfg_path = write_adapters_config(&work, adapter_addr);
+    let token_path = work.path().join("bearer.token");
+    std::fs::write(&token_path, "file-secret-value\n").unwrap();
+
+    for (arg, env) in [
+        (Some("inline-secret-value"), None),
+        (None, Some("env-secret-value")),
+    ] {
+        let port = ephemeral_port();
+        let mut cmd = Command::new(binary_path());
+        cmd.arg("--adapters-config")
+            .arg(&cfg_path)
+            .arg("--http-bind")
+            .arg(format!("127.0.0.1:{port}"))
+            .arg("--bearer-token-file")
+            .arg(&token_path)
+            .env("FERRIDIS_WALLET_MEMORY", "1")
+            .env_remove("FERRIDIS_MCP_BEARER")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(inline) = arg {
+            cmd.arg("--bearer-token").arg(inline);
+        }
+        if let Some(value) = env {
+            cmd.env("FERRIDIS_MCP_BEARER", value);
+        }
+        let output = tokio::time::timeout(Duration::from_secs(15), cmd.output())
+            .await
+            .expect("the publisher must exit, not start serving")
+            .expect("spawn ferridis-mcp-server");
+
+        assert!(
+            !output.status.success(),
+            "two bearer sources must be refused"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Not merely "unknown argument": the refusal must be the
+        // two-sources one, or this test would pass on a binary that
+        // has no --bearer-token-file at all.
+        assert!(
+            stderr.contains("one source"),
+            "stderr should refuse two bearer sources; got: {stderr}"
+        );
+        for secret in [
+            "inline-secret-value",
+            "env-secret-value",
+            "file-secret-value",
+        ] {
+            assert!(!stderr.contains(secret), "stderr echoed a token: {stderr}");
+        }
+    }
+}

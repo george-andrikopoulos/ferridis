@@ -3,7 +3,7 @@
 //! All business logic lives in the library crate (`lib.rs` → `store`, `routes`).
 
 use clap::Parser;
-use ferridis_discovery_broker::{routes, store::ServiceStore};
+use ferridis_discovery_broker::{routes, state_path, store::ServiceStore};
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
@@ -18,7 +18,9 @@ struct Args {
     ///
     /// Registrations are written atomically after every `POST /discovery/register`
     /// and reloaded at startup so they survive process restarts.
-    /// Defaults to `~/.local/share/ferridis/discovery.json`.
+    /// Defaults to `$HOME/.local/share/ferridis/discovery.json`, or
+    /// `%LOCALAPPDATA%\Ferridis\discovery.json` when `HOME` is unset (a
+    /// Windows service). With neither set the broker refuses to start.
     #[arg(long)]
     state_file: Option<PathBuf>,
 }
@@ -31,10 +33,16 @@ async fn main() {
 
     let args = Args::parse();
 
-    let state_path = args.state_file.unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string()); // allow:unwrap startup — fallback to CWD on missing HOME
-        PathBuf::from(format!("{}/.local/share/ferridis/discovery.json", home))
-    });
+    let state_path = match args.state_file {
+        Some(path) => path,
+        None => match state_path::default_state_path(|k| std::env::var(k).ok()) {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("ferridis-discovery-broker: {e}");
+                std::process::exit(2);
+            }
+        },
+    };
 
     let store = ServiceStore::with_state(state_path.clone()); // clone: path kept for log message
 
