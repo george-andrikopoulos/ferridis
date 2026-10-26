@@ -28,6 +28,10 @@ Full architecture: [architecture.md](./architecture.md). Wire protocol sketch: [
 
 The design is locked. The Rust reference implementation is at **v0.6** of the protocol — all six layers running end-to-end with full MCP/A2A interoperability in both directions.
 
+**What's new in v0.7** (on `main`, not yet tagged): **Ferridis now supports programmatic tool calling**, so Claude can call Ferridis tools from code it writes and runs, with each tool's allowed callers enforced at the gateway. Also new: VS Code can connect to a running Ferridis service, backpressure is wired end to end, and every reference adapter serves response schemas. Release notes with diagrams: [RELEASE-v0.7.md](./RELEASE-v0.7.md).
+
+[![Ferridis v0.7 at a glance](./diagrams/v0.7-at-a-glance.svg)](./RELEASE-v0.7.md)
+
 What runs today:
 
 - **The full six-layer stack end-to-end.** Connections (OAuth 2.0 + PKCE, OS-keychain wallet via `keyring`), capability mesh (manifest + lazy schema fetch with TTL cache, three-tier registry, federated mesh with signed mesh-index), web-native specs (OpenAPI 3 / AsyncAPI references, schema-driven request validation at the dispatch boundary), bidirectional channels (SSE one-way *and* WebSocket bidi with typed `ClientMessage` upstream), intent layer (intent → capability matching, auth-aware dispatch, streaming responses), and tier-used telemetry on every call.
@@ -37,7 +41,7 @@ What runs today:
 - **stdio-to-SSE bridge.** `ferridis-stdio-bridge` wraps any stdio MCP server as an HTTP SSE endpoint the broker can register — solving the class of tools that have no network URL.
 - **Six reference adapters.** Filesystem (`ferridis-adapter-fs`, path-traversal protection via `Root`/`RelPath` typestate), Claude Code CLI (stream-kind, drives `claude` over SSE), Google Calendar, Slack, GitHub, and Notion — each with 6 intents and wiremock-backed integration-test coverage.
 - **Programmatic tool calling (v0.7, on `main`, unreleased).** `ferridis-ptc` offers Ferridis tools to Claude over the Messages API, with some tools callable only from code running in Claude's code-execution container, so intermediate results stay out of the model's context. Who may call each tool is set per tool, by the manifest's `callers` declaration or an `adapters.json` override, and enforced before dispatch in both directions; the caller is recorded on the tier-used log. Verified live on 2026-10-26: Claude's code read three files through the filesystem adapter and added them up, in five turns, for about $0.05.
-- **Editor integrations.** VS Code (TypeScript extension registering `ferridis-mcp-server` with VS Code's native MCP runtime; Ferridis capabilities appear as Copilot Chat tools) and Zed (Rust → WASM extension registering `ferridis-mcp-server` as a context server).
+- **Editor integrations.** VS Code (TypeScript extension registering `ferridis-mcp-server` with VS Code's native MCP runtime; Ferridis capabilities appear as Copilot Chat tools; since v0.3 it can also connect over HTTP to a `ferridis-mcp-server` already running as a service, with its bearer token kept in VS Code secret storage) and Zed (Rust → WASM extension registering `ferridis-mcp-server` as a context server).
 
 The design process continues in public. If you build for AI, integrate AI, or use AI seriously enough to feel the friction — follow along, push back, file issues, propose changes. The protocol-level work tracker is [TODO.md](./TODO.md); the at-a-glance feature surface is [FEATURES.md](./FEATURES.md).
 

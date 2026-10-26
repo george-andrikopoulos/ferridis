@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 820 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="cp-t">
+  <title id="cp-t">Caller policy: each tool is either direct-only or code-only. The effective policy is the first that applies of a computed schema constraint, the adapters.json override, the manifest declaration, and the default (direct). The gate dispatches a call only when the caller matches the policy; every other call gets an error result and never reaches the adapter.</title>
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0,0 7,2.5 0,5" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .sans { font-family: ui-sans-serif, system-ui, sans-serif; }
+      .mono { font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', monospace; }
+      .h { font-size: 12px; font-weight: 700; fill: #0F172A; }
+      .sub { font-size: 10px; fill: #64748B; }
+      .note { font-size: 9.5px; fill: #64748B; }
+      .rank { font-size: 11px; font-weight: 700; fill: #FFFFFF; }
+      .panel { fill: #FFFFFF; stroke: #E2E8F0; stroke-width: 1; }
+      .row { fill: #FFFFFF; stroke: #E2E8F0; stroke-width: 1; }
+      .flow { stroke: #CBD5E1; stroke-width: 1.5; fill: none; }
+      .ok { fill: #F0FDF4; stroke: #86EFAC; stroke-width: 1; }
+      .no { fill: #FEF2F2; stroke: #FCA5A5; stroke-width: 1; }
+    </style>
+  </defs>
+  <rect width="820" height="400" fill="#F8FAFC"/>
+
+  <text x="24" y="32" class="sans" font-size="15" font-weight="700" fill="#0F172A">Who may call a tool</text>
+  <text x="24" y="50" class="sans sub">Every tool is either direct-only or code-only: no "both", no sentinel. It is resolved when the tool plan is built and enforced at the gate.</text>
+
+  <!-- ===== Left: precedence ===== -->
+  <rect x="24" y="66" width="410" height="310" rx="10" class="panel"/>
+  <text x="44" y="90" class="sans h">1 · Resolve the policy</text>
+  <text x="44" y="105" class="sans sub">the first rule that applies wins</text>
+
+  <!-- rank 1 -->
+  <rect x="44" y="118" width="370" height="54" rx="7" class="row"/>
+  <circle cx="68" cy="145" r="11" fill="#DC2626"/>
+  <text x="68" y="149" text-anchor="middle" class="sans rank">1</text>
+  <text x="88" y="140" class="sans h">Computed schema constraint</text>
+  <text x="88" y="157" class="sans sub">recursive or unresolvable $ref → direct, with a WARN</text>
+
+  <!-- rank 2 -->
+  <rect x="44" y="180" width="370" height="54" rx="7" class="row"/>
+  <circle cx="68" cy="207" r="11" fill="#D97706"/>
+  <text x="68" y="211" text-anchor="middle" class="sans rank">2</text>
+  <text x="88" y="202" class="sans h">Operator override</text>
+  <text x="88" y="219" class="mono" font-size="9.5" fill="#475569">adapters.json  "callers": {"&lt;tool&gt;": "code"}</text>
+
+  <!-- rank 3 -->
+  <rect x="44" y="242" width="370" height="54" rx="7" class="row"/>
+  <circle cx="68" cy="269" r="11" fill="#2563EB"/>
+  <text x="68" y="273" text-anchor="middle" class="sans rank">3</text>
+  <text x="88" y="264" class="sans h">Publisher declaration</text>
+  <text x="88" y="281" class="mono" font-size="9.5" fill="#475569">manifest intent  "callers": "code"</text>
+
+  <!-- rank 4 -->
+  <rect x="44" y="304" width="370" height="54" rx="7" class="row"/>
+  <circle cx="68" cy="331" r="11" fill="#64748B"/>
+  <text x="68" y="335" text-anchor="middle" class="sans rank">4</text>
+  <text x="88" y="326" class="sans h">Default</text>
+  <text x="88" y="343" class="sans sub">direct: nothing changes for existing tools</text>
+
+  <!-- arrow to the gate -->
+  <path d="M 434,221 H 460" class="flow" marker-end="url(#a)"/>
+
+  <!-- ===== Right: gate matrix ===== -->
+  <rect x="462" y="66" width="334" height="310" rx="10" class="panel"/>
+  <text x="482" y="90" class="sans h">2 · Gate every call</text>
+  <text x="482" y="105" class="sans sub">before any dispatch, in both directions</text>
+
+  <!-- column headers -->
+  <text x="645" y="134" text-anchor="middle" class="sans" font-size="10" font-weight="700" fill="#475569">called by model</text>
+  <text x="737" y="134" text-anchor="middle" class="sans" font-size="10" font-weight="700" fill="#475569">called by code</text>
+
+  <!-- row: direct tool -->
+  <text x="482" y="170" class="sans" font-size="11" font-weight="700" fill="#0F172A">direct-only</text>
+  <text x="482" y="185" class="sans note">tool</text>
+  <rect x="600" y="146" width="90" height="56" rx="7" class="ok"/>
+  <text x="645" y="170" text-anchor="middle" class="sans" font-size="11" font-weight="700" fill="#15803D">dispatch</text>
+  <text x="645" y="186" text-anchor="middle" class="mono" font-size="9" fill="#15803D">model-direct</text>
+  <rect x="694" y="146" width="88" height="56" rx="7" class="no"/>
+  <text x="738" y="170" text-anchor="middle" class="sans" font-size="11" font-weight="700" fill="#B91C1C">refuse</text>
+  <text x="738" y="186" text-anchor="middle" class="sans" font-size="9" fill="#B91C1C">error result</text>
+
+  <!-- row: code tool -->
+  <text x="482" y="232" class="sans" font-size="11" font-weight="700" fill="#0F172A">code-only</text>
+  <text x="482" y="247" class="sans note">tool</text>
+  <rect x="600" y="208" width="90" height="56" rx="7" class="no"/>
+  <text x="645" y="232" text-anchor="middle" class="sans" font-size="11" font-weight="700" fill="#B91C1C">refuse</text>
+  <text x="645" y="248" text-anchor="middle" class="sans" font-size="9" fill="#B91C1C">error result</text>
+  <rect x="694" y="208" width="88" height="56" rx="7" class="ok"/>
+  <text x="738" y="232" text-anchor="middle" class="sans" font-size="11" font-weight="700" fill="#15803D">dispatch</text>
+  <text x="738" y="248" text-anchor="middle" class="mono" font-size="9" fill="#15803D">model-code</text>
+
+  <!-- footnotes -->
+  <rect x="482" y="282" width="300" height="76" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="496" y="302" class="sans note">An unknown tool or an unrecognised caller type</text>
+  <text x="496" y="316" class="sans note">is refused too. A refused call never reaches</text>
+  <text x="496" y="330" class="sans note">the adapter. A dispatched call carries its origin</text>
+  <text x="496" y="344" class="sans note">onto the tier-used log line.</text>
+</svg>

@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 820 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="po-t">
+  <title id="po-t">Programmatic tool calling: the host offers Ferridis tools to Claude; code in the code-execution container calls them; the host gates each call and dispatches it to a Ferridis adapter; the result goes back into the container, not into the model's context.</title>
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0,0 7,2.5 0,5" fill="#94A3B8"/>
+    </marker>
+    <marker id="as" markerWidth="7" markerHeight="5" refX="1" refY="2.5" orient="auto">
+      <polygon points="7,0 0,2.5 7,5" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .sans { font-family: ui-sans-serif, system-ui, sans-serif; }
+      .mono { font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', monospace; }
+      .h { font-size: 12px; font-weight: 700; fill: #0F172A; }
+      .sub { font-size: 10px; fill: #64748B; }
+      .note { font-size: 9.5px; fill: #64748B; }
+      .step { font-size: 10px; font-weight: 700; fill: #475569; }
+      .panel { fill: #FFFFFF; stroke: #E2E8F0; stroke-width: 1; }
+      .box { fill: #FFFFFF; stroke: #E2E8F0; stroke-width: 1; }
+      .flow { stroke: #CBD5E1; stroke-width: 1.5; fill: none; }
+    </style>
+  </defs>
+  <rect width="820" height="480" fill="#F8FAFC"/>
+
+  <!-- Title -->
+  <text x="24" y="32" class="sans" font-size="15" font-weight="700" fill="#0F172A">Programmatic tool calling: one round trip</text>
+  <text x="24" y="50" class="sans sub">Claude's code calls Ferridis tools. The host sits between the API and the adapters and gates every call.</text>
+
+  <!-- ===== Panel: Claude API ===== -->
+  <rect x="24" y="66" width="250" height="374" rx="10" class="panel"/>
+  <text x="44" y="90" class="sans h">Claude · Messages API</text>
+  <text x="44" y="105" class="sans sub">model + code-execution container</text>
+
+  <rect x="44" y="118" width="210" height="56" rx="7" class="box"/>
+  <text x="149" y="141" text-anchor="middle" class="sans h">Model</text>
+  <text x="149" y="158" text-anchor="middle" class="sans sub">writes the code, reads only its output</text>
+
+  <line x1="149" y1="174" x2="149" y2="198" class="flow" marker-end="url(#a)"/>
+
+  <rect x="44" y="200" width="210" height="152" rx="7" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1"/>
+  <text x="58" y="220" class="sans" font-size="11" font-weight="700" fill="#1D4ED8">code-execution container</text>
+  <text x="58" y="243" class="mono" font-size="9.5" fill="#0F172A">files = await list_dir("")</text>
+  <text x="58" y="259" class="mono" font-size="9.5" fill="#0F172A">n = 0</text>
+  <text x="58" y="275" class="mono" font-size="9.5" fill="#0F172A">for f in files:</text>
+  <text x="80" y="291" class="mono" font-size="9.5" fill="#0F172A">n += int(await read_file(f))</text>
+  <text x="58" y="307" class="mono" font-size="9.5" fill="#0F172A">print(n)</text>
+  <text x="58" y="329" class="sans" font-size="9.5" font-style="italic" fill="#1D4ED8">tool results land here,</text>
+  <text x="58" y="342" class="sans" font-size="9.5" font-style="italic" fill="#1D4ED8">not in the model's context</text>
+
+  <line x1="149" y1="352" x2="149" y2="374" class="flow" marker-end="url(#a)"/>
+  <text x="157" y="367" class="sans note">stdout</text>
+
+  <rect x="44" y="376" width="210" height="48" rx="7" class="box"/>
+  <text x="149" y="396" text-anchor="middle" class="mono" font-size="12" font-weight="700" fill="#15803D">answer: 100</text>
+  <text x="149" y="413" text-anchor="middle" class="sans note">live run: 5 turns, 4 calls from code, ≈ $0.05</text>
+
+  <!-- ===== Panel: host ===== -->
+  <rect x="314" y="66" width="200" height="374" rx="10" class="panel"/>
+  <text x="334" y="90" class="sans h">Your host</text>
+  <text x="334" y="105" class="mono sub">ferridis-ptc</text>
+
+  <rect x="330" y="118" width="168" height="56" rx="7" class="box"/>
+  <text x="414" y="141" text-anchor="middle" class="sans h">ToolPlan</text>
+  <text x="414" y="158" text-anchor="middle" class="sans sub">tools + allowed_callers</text>
+
+  <rect x="330" y="214" width="168" height="70" rx="7" fill="#FFFBEB" stroke="#FCD34D" stroke-width="1"/>
+  <text x="414" y="236" text-anchor="middle" class="sans" font-size="12" font-weight="700" fill="#B45309">Caller gate</text>
+  <text x="414" y="253" text-anchor="middle" class="sans sub">tool policy vs who called</text>
+  <text x="414" y="268" text-anchor="middle" class="sans sub">refused → error result</text>
+
+  <line x1="414" y1="284" x2="414" y2="308" class="flow" marker-end="url(#a)"/>
+
+  <rect x="330" y="310" width="168" height="70" rx="7" class="box"/>
+  <text x="414" y="332" text-anchor="middle" class="sans h">Executor</text>
+  <text x="414" y="349" text-anchor="middle" class="sans sub">deadline · size cap</text>
+  <text x="414" y="364" text-anchor="middle" class="sans sub">one result per call</text>
+
+  <text x="414" y="410" text-anchor="middle" class="sans note">retries 429 / 5xx · refuses an</text>
+  <text x="414" y="423" text-anchor="middle" class="sans note">expired container · max 16 turns</text>
+
+  <!-- ===== Panel: Ferridis ===== -->
+  <rect x="554" y="66" width="242" height="374" rx="10" class="panel"/>
+  <text x="574" y="90" class="sans h">Ferridis</text>
+  <text x="574" y="105" class="sans sub">client + adapters</text>
+
+  <rect x="570" y="118" width="210" height="56" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="675" y="140" text-anchor="middle" class="sans sub">registered from the same adapters.json</text>
+  <text x="675" y="155" text-anchor="middle" class="sans sub">as ferridis-mcp-server</text>
+
+  <rect x="570" y="214" width="210" height="70" rx="7" class="box"/>
+  <text x="675" y="236" text-anchor="middle" class="sans h">fs adapter</text>
+  <text x="675" y="253" text-anchor="middle" class="sans sub">list-dir · read-file: code only</text>
+  <text x="675" y="268" text-anchor="middle" class="sans sub">write-file: direct only</text>
+
+  <line x1="675" y1="286" x2="675" y2="308" class="flow" marker-start="url(#as)" marker-end="url(#a)"/>
+
+  <rect x="570" y="310" width="210" height="70" rx="7" class="box"/>
+  <text x="675" y="332" text-anchor="middle" class="sans h">ferridis-client</text>
+  <text x="675" y="349" text-anchor="middle" class="mono" font-size="9.5" fill="#475569">dispatch_from(ModelCode)</text>
+  <text x="675" y="364" text-anchor="middle" class="sans note">tier-used log: caller=model-code</text>
+
+  <!-- ===== Cross-panel flows ===== -->
+  <!-- 1: tools offered -->
+  <line x1="330" y1="146" x2="256" y2="146" class="flow" marker-end="url(#a)"/>
+  <text x="293" y="139" text-anchor="middle" class="sans step">① tools</text>
+
+  <!-- 2: pause with a call from code -->
+  <line x1="254" y1="240" x2="328" y2="240" class="flow" marker-end="url(#a)"/>
+  <text x="291" y="233" text-anchor="middle" class="sans step">② pause</text>
+  <text x="291" y="254" text-anchor="middle" class="sans note">caller=code</text>
+
+  <!-- 3: dispatch -->
+  <line x1="498" y1="330" x2="568" y2="330" class="flow" marker-end="url(#a)"/>
+  <text x="533" y="323" text-anchor="middle" class="sans step">③ call</text>
+
+  <!-- 4: result -->
+  <line x1="570" y1="360" x2="500" y2="360" class="flow" marker-end="url(#a)"/>
+  <text x="535" y="374" text-anchor="middle" class="sans step">④ result</text>
+
+  <!-- 5: tool_result back into the container -->
+  <line x1="330" y1="340" x2="256" y2="340" class="flow" marker-end="url(#a)"/>
+  <text x="293" y="333" text-anchor="middle" class="sans step">⑤ result</text>
+
+  <!-- Footer -->
+  <text x="410" y="464" text-anchor="middle" class="sans" font-size="10" fill="#64748B">② to ⑤ repeat for every call the code makes; the run ends when the code finishes and the model answers.</text>
+</svg>

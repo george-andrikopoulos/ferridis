@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 820 404" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pg-t">
+  <title id="pg-t">The guards along one turn of a programmatic-tool-calling run, from sending the request to sending the continuation. Each guard is either a type that leaves no place for the mistake, or a runtime check pinned by a test.</title>
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0,0 7,2.5 0,5" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .sans { font-family: ui-sans-serif, system-ui, sans-serif; }
+      .mono { font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', monospace; }
+      .h { font-size: 12px; font-weight: 700; fill: #0F172A; }
+      .sub { font-size: 10px; fill: #64748B; }
+      .g { font-size: 9.5px; fill: #334155; }
+      .card { fill: #FFFFFF; stroke: #E2E8F0; stroke-width: 1; }
+      .flow { stroke: #CBD5E1; stroke-width: 1.5; fill: none; }
+      .type { fill: #DCFCE7; stroke: #86EFAC; stroke-width: 1; }
+      .check { fill: #DBEAFE; stroke: #93C5FD; stroke-width: 1; }
+      .tt { font-size: 8.5px; font-weight: 700; fill: #15803D; letter-spacing: 0.5px; }
+      .ct { font-size: 8.5px; font-weight: 700; fill: #1D4ED8; letter-spacing: 0.5px; }
+    </style>
+  </defs>
+  <rect width="820" height="404" fill="#F8FAFC"/>
+
+  <text x="24" y="32" class="sans" font-size="15" font-weight="700" fill="#0F172A">What can't go wrong in a turn</text>
+  <text x="24" y="50" class="sans sub">One turn from request to continuation. Every guard below is enforced by a type or pinned by a test.</text>
+
+  <!-- legend -->
+  <rect x="24" y="64" width="44" height="16" rx="8" class="type"/>
+  <text x="46" y="75" text-anchor="middle" class="sans tt">TYPE</text>
+  <text x="74" y="76" class="sans sub">the type has no place for the mistake</text>
+  <rect x="290" y="64" width="50" height="16" rx="8" class="check"/>
+  <text x="315" y="75" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="346" y="76" class="sans sub">runtime check, pinned by a test</text>
+
+  <!-- ===== Card 1: send ===== -->
+  <rect x="24" y="96" width="148" height="290" rx="10" class="card"/>
+  <text x="38" y="120" class="sans h">1 · Send</text>
+  <text x="38" y="135" class="sans sub">the request</text>
+
+  <rect x="38" y="152" width="40" height="16" rx="8" class="type"/>
+  <text x="58" y="163" text-anchor="middle" class="sans tt">TYPE</text>
+  <text x="38" y="184" class="sans g">no strict, tool_choice or</text>
+  <text x="38" y="197" class="sans g">sampling field exists to</text>
+  <text x="38" y="210" class="sans g">send by mistake</text>
+
+  <rect x="38" y="228" width="46" height="16" rx="8" class="check"/>
+  <text x="61" y="239" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="38" y="260" class="sans g">429 and 5xx retried twice,</text>
+  <text x="38" y="273" class="sans g">honouring retry-after</text>
+  <text x="38" y="286" class="sans g">up to 60 s</text>
+
+  <!-- ===== Card 2: parse ===== -->
+  <rect x="182" y="96" width="148" height="290" rx="10" class="card"/>
+  <text x="196" y="120" class="sans h">2 · Parse</text>
+  <text x="196" y="135" class="sans sub">the response</text>
+
+  <rect x="196" y="152" width="46" height="16" rx="8" class="check"/>
+  <text x="219" y="163" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="196" y="184" class="sans g">a call from code with no</text>
+  <text x="196" y="197" class="sans g">container is rejected</text>
+
+  <rect x="196" y="228" width="46" height="16" rx="8" class="check"/>
+  <text x="219" y="239" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="196" y="260" class="sans g">duplicate tool_use ids</text>
+  <text x="196" y="273" class="sans g">are rejected</text>
+
+  <!-- ===== Card 3: gate ===== -->
+  <rect x="340" y="96" width="148" height="290" rx="10" class="card"/>
+  <text x="354" y="120" class="sans h">3 · Gate</text>
+  <text x="354" y="135" class="sans sub">each call</text>
+
+  <rect x="354" y="152" width="46" height="16" rx="8" class="check"/>
+  <text x="377" y="163" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="354" y="184" class="sans g">the caller must match the</text>
+  <text x="354" y="197" class="sans g">tool's policy, both ways</text>
+
+  <rect x="354" y="228" width="46" height="16" rx="8" class="check"/>
+  <text x="377" y="239" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="354" y="260" class="sans g">an unknown tool or caller</text>
+  <text x="354" y="273" class="sans g">type is refused</text>
+
+  <text x="354" y="372" class="sans" font-size="9" font-style="italic" fill="#64748B">property test: 128 cases</text>
+
+  <!-- ===== Card 4: dispatch ===== -->
+  <rect x="498" y="96" width="148" height="290" rx="10" class="card"/>
+  <text x="512" y="120" class="sans h">4 · Dispatch</text>
+  <text x="512" y="135" class="sans sub">to the adapter</text>
+
+  <rect x="512" y="152" width="46" height="16" rx="8" class="check"/>
+  <text x="535" y="163" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="512" y="184" class="sans g">abandoned after 180 s,</text>
+  <text x="512" y="197" class="sans g">before the API's ~4 min</text>
+  <text x="512" y="210" class="sans g">pending-call limit</text>
+
+  <rect x="512" y="228" width="46" height="16" rx="8" class="check"/>
+  <text x="535" y="239" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="512" y="260" class="sans g">result capped: 128 KiB</text>
+  <text x="512" y="273" class="sans g">to the model, 1 MiB to</text>
+  <text x="512" y="286" class="sans g">code; over it is an error,</text>
+  <text x="512" y="299" class="sans g">never cut-off JSON</text>
+
+  <!-- ===== Card 5: continue ===== -->
+  <rect x="656" y="96" width="148" height="290" rx="10" class="card"/>
+  <text x="670" y="120" class="sans h">5 · Continue</text>
+  <text x="670" y="135" class="sans sub">the conversation</text>
+
+  <rect x="670" y="152" width="40" height="16" rx="8" class="type"/>
+  <text x="690" y="163" text-anchor="middle" class="sans tt">TYPE</text>
+  <text x="670" y="184" class="sans g">exactly one tool_result</text>
+  <text x="670" y="197" class="sans g">per pending call, and no</text>
+  <text x="670" y="210" class="sans g">room for anything else</text>
+
+  <rect x="670" y="228" width="46" height="16" rx="8" class="check"/>
+  <text x="693" y="239" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="670" y="260" class="sans g">nothing is sent once the</text>
+  <text x="670" y="273" class="sans g">container has expired</text>
+
+  <rect x="670" y="304" width="46" height="16" rx="8" class="check"/>
+  <text x="693" y="315" text-anchor="middle" class="sans ct">CHECK</text>
+  <text x="670" y="336" class="sans g">a run stops at 16 turns,</text>
+  <text x="670" y="349" class="sans g">so it cannot spend</text>
+  <text x="670" y="362" class="sans g">without bound</text>
+
+  <!-- arrows between cards -->
+  <line x1="172" y1="124" x2="180" y2="124" class="flow" marker-end="url(#a)"/>
+  <line x1="330" y1="124" x2="338" y2="124" class="flow" marker-end="url(#a)"/>
+  <line x1="488" y1="124" x2="496" y2="124" class="flow" marker-end="url(#a)"/>
+  <line x1="646" y1="124" x2="654" y2="124" class="flow" marker-end="url(#a)"/>
+</svg>
