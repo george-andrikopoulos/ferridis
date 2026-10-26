@@ -219,8 +219,8 @@ Out of scope for PTC (separate items, not started):
 ## Release v0.7.0 (2026-10-26)
 
 - [x] **Workspace versioned 0.7.0.** It had read 0.1.0 since the first commit, so `ferridis-mcp-server` announced itself as 0.1.0 in `serverInfo`. The four `ferridis-adapter-fs` dev-dependency pins moved with it.
-- [ ] **Tag `v0.7.0` and publish the GitHub release** from RELEASE-v0.7.md, with the VS Code extension `.vsix` attached. The repository's first tag and first release.
-- [ ] **Redeploy the maintainer's Windows service from the tag**, keeping the bearer token so VS Code service mode stays connected.
+- [x] **Tagged `v0.7.0` (2bf9a07) and published the GitHub release** from RELEASE-v0.7.md, links pinned to the tag, with `ferridis-0.3.0.vsix` attached. CI green on Ubuntu and Windows first. The repository's first tag and first release.
+- [x] **Redeployed the maintainer's Windows service from 2bf9a07** with `deploy-v0.7.0.ps1`, which keeps the bearer token. `serverInfo.version` went 0.1.0 → 0.7.0; 112 tools before and after; kept token 200, no token 401. The installed VS Code extension 0.3.0 is byte-identical to the release build, so it was not reinstalled.
 
 ## VS Code service mode, and v0.7 on the Windows service (2026-10-26)
 
