@@ -224,7 +224,7 @@ Out of scope for PTC (separate items, not started):
 - [x] **Live run through the service endpoint.** One Home Assistant question: 2 turns, 1 call from code, ~$0.18 in tokens; no workspace ID was needed for this key.
 - [ ] **Test the startup refusal of a catalogue tool named `ferridis_ptc_run`.** Needs an adapter whose generated tool name collides; the names carry a `ferridis_` prefix and a capability id, so the fixture must be built deliberately.
 - [x] **Fixed a race in `tests/end_to_end.rs`, found by the gate.** The two partial-failure tests bound a port, released it, and used it as the dead adapter; a parallel test's fs adapter could be handed the same port, and `partial_failure_with_all_adapters_failing_still_serves` then saw 5 tools. `unanswering_port()` now holds the port for the test binary's life and closes every connection unanswered.
-- [ ] Linux leg of the local gate for this change (WSL).
+- [x] **Linux leg of the local gate (WSL).** `scripts/check.sh` in WSL Ubuntu at 51cccbc (LF clone, pinned 1.95.0): fmt, clippy and test pass, 465 passed / 0 failed / 4 ignored, the same as Windows.
 - [ ] Derive native adapters' **input** schemas from the OpenAPI `requestBody` and retire the hardcoded fs table in the catalogue. The data is now parseable JSON, but this changes client-side dispatch validation, so it needs its own change.
 
 ## Release v0.7.0 (2026-10-26)
