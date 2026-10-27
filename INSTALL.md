@@ -410,5 +410,53 @@ Once built, register `ferridis-mcp-server` with any MCP-aware client.
 }
 ```
 
+### Programmatic tool calling for MCP clients
+
+MCP clients call tools one at a time. To let them use programmatic tool
+calling, give the server an Anthropic API key:
+
+```bash
+ferridis-mcp-server --adapters-config adapters.json \
+    --ptc-api-key-file /path/to/anthropic.key \
+    [--ptc-workspace-id wrkspc_...]
+```
+
+The server then lists one more tool, `ferridis_ptc_run`, with the input
+`{"task": "<what to do>"}`. A call runs one programmatic-tool-calling
+conversation with Claude over the Messages API, using the same tools the server
+publishes, and returns the final answer followed by a one-line summary: turns,
+calls from code and direct, refused, failed, and input tokens split into
+uncached, cache write and cache read, plus output tokens.
+
+- **Which tools code may call** comes from the adapters file's `callers` map
+  (the object form of the file). Mark read-only tools `"code"`; anything that
+  writes, restarts or deletes should stay direct. With no `callers` map every
+  tool is direct, and the server logs a WARN saying so.
+
+  ```jsonc
+  {
+    "adapters": [ /* the same entries as the bare-array form */ ],
+    "callers": { "ferridis_mcp_ha_mcp_v1_ha_get_states": "code" }
+  }
+  ```
+
+- **Cost.** Every call is billed to the key. Requests use prompt caching, so
+  the tool definitions are paid in full once and read cheaply on later turns
+  and later calls within five minutes. A run is capped at 16 model turns, and
+  runs go one at a time. Measured on 2026-10-26 against the 112-tool Windows
+  service (definitions about 25,000 tokens): one Home Assistant question,
+  2 turns, 1 call from code, about $0.18.
+- **The key file** holds one value; surrounding whitespace is trimmed. Errors
+  name the flag and the path, never the key. Without `--ptc-api-key-file`
+  the tool does not exist, and `--ptc-workspace-id` / `--ptc-endpoint` are
+  refused.
+- **Workspace.** A key not scoped to a workspace may need
+  `--ptc-workspace-id`; the Messages API says so with a 400 if it does.
+
+For the WinSW service above, add
+`--ptc-api-key-file "C:\path\to\anthropic.key"` to `<arguments>` and restart
+the service. VS Code in service mode picks up the new tool on its next
+`tools/list`.
+
 See [architecture.md](./architecture.md) for the full six-layer design and
 [FEATURES.md](./FEATURES.md) for the current feature matrix.

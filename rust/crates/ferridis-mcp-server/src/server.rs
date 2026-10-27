@@ -14,21 +14,25 @@ use crate::protocol::{
     SERVER_VERSION, ServerCapabilities, ServerInfo, Tool, ToolsCallParams, ToolsCallResult,
     ToolsCapability, ToolsListResult, codes,
 };
+use crate::ptc_tool::{PTC_TOOL_NAME, PtcTool};
 use crate::tools::ToolCatalogue;
 
 /// Long-lived server state.
 pub struct Server {
     client: Arc<Client>,
     catalogue: ToolCatalogue,
+    /// `ferridis_ptc_run`, when `--ptc-api-key-file` configured it.
+    ptc: Option<PtcTool>,
     /// Set when the client sends `initialize`.
     initialized: std::sync::Mutex<bool>,
 }
 
 impl Server {
-    pub fn new(client: Arc<Client>, catalogue: ToolCatalogue) -> Self {
+    pub fn new(client: Arc<Client>, catalogue: ToolCatalogue, ptc: Option<PtcTool>) -> Self {
         Self {
             client,
             catalogue,
+            ptc,
             initialized: std::sync::Mutex::new(false),
         }
     }
@@ -150,7 +154,10 @@ impl Server {
     }
 
     async fn handle_tools_list(&self, id: serde_json::Value) -> Response {
-        let tools: Vec<Tool> = self.catalogue.tools().to_vec();
+        let mut tools: Vec<Tool> = self.catalogue.tools().to_vec();
+        if let Some(ptc) = &self.ptc {
+            tools.push(ptc.descriptor().clone()); // allow:clone — the listing is serialized and dropped; the tool keeps its descriptor
+        }
         let result = ToolsListResult { tools };
         Response::success(
             id,
@@ -173,6 +180,15 @@ impl Server {
                 );
             }
         };
+
+        if let Some(ptc) = self.ptc.as_ref().filter(|_| call.name == PTC_TOOL_NAME) {
+            info!(tool = %call.name, "tools/call programmatic run");
+            let result = ptc.call(call.arguments).await;
+            return Response::success(
+                id,
+                serde_json::to_value(result).expect("ToolsCallResult serializes"),
+            );
+        }
 
         let Some(entry) = self.catalogue.resolve(&call.name) else {
             return Response::error(

@@ -331,6 +331,58 @@ async fn a_programmatic_call_round_trips_through_a_real_adapter() {
     );
 }
 
+/// Every request asks for automatic caching, the tools array ends in a
+/// breakpoint of its own (on the last custom tool and nowhere else), and
+/// the run sums the cache counts the API reports.
+#[tokio::test]
+async fn every_request_caches_the_tools_and_the_conversation() {
+    let (_dir, conversation, executor) = fs_session().await;
+    let mut first = paused(LIST_DIR, json!({ "path": "" }));
+    first["usage"] = json!({ "input_tokens": 50, "cache_creation_input_tokens": 1150,
+                             "cache_read_input_tokens": 0, "output_tokens": 180 });
+    let mut second = finished();
+    second["usage"] = json!({ "input_tokens": 40, "cache_creation_input_tokens": 300,
+                              "cache_read_input_tokens": 1150, "output_tokens": 40 });
+    let server = messages_api(vec![first, second]).await;
+    let ptc = ptc_client(&server, BEFORE_EXPIRY);
+
+    let outcome = run(&ptc, &executor, conversation, prompt(), MaxTurns::default())
+        .await
+        .expect("run completes");
+
+    let usage = outcome.usage();
+    assert_eq!(usage.input_tokens(), 90);
+    assert_eq!(usage.cache_creation_input_tokens(), 1450);
+    assert_eq!(usage.cache_read_input_tokens(), 1150);
+    assert_eq!(usage.output_tokens(), 220);
+
+    let requests = bodies(&server).await;
+    assert_eq!(requests.len(), 2);
+    for (_, body) in &requests {
+        assert_eq!(
+            body["cache_control"],
+            json!({ "type": "ephemeral" }),
+            "{body}"
+        );
+        let tools = body["tools"].as_array().expect("tools is an array");
+        let marked: Vec<usize> = tools
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.get("cache_control").is_some())
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            marked,
+            vec![tools.len() - 1],
+            "one breakpoint, on the last tool"
+        );
+        assert_eq!(
+            tools[tools.len() - 1]["cache_control"],
+            json!({ "type": "ephemeral" })
+        );
+    }
+}
+
 /// `write-file` is direct-only (no declaration, no override). Code calling
 /// it gets an error result, and the adapter never runs: the file is not
 /// written.

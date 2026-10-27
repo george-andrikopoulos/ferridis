@@ -21,19 +21,41 @@ use crate::ids::{ContainerId, ServerToolUseId, ToolUseId};
 use crate::request::{Conversation, Message};
 
 /// Token usage of one response, or summed over several.
+///
+/// The three input counts are disjoint, as the API reports them: the
+/// tokens a request sent are `input + cache_creation + cache_read`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 pub struct Usage {
     #[serde(default)]
     input_tokens: u64,
     #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+    #[serde(default)]
     output_tokens: u64,
 }
 
 impl Usage {
-    /// Input tokens.
+    /// Input tokens neither written to nor read from the prompt cache,
+    /// billed at the base input price.
     #[must_use]
     pub fn input_tokens(&self) -> u64 {
         self.input_tokens
+    }
+
+    /// Input tokens written to the prompt cache (1.25 times the base input
+    /// price for the five-minute lifetime).
+    #[must_use]
+    pub fn cache_creation_input_tokens(&self) -> u64 {
+        self.cache_creation_input_tokens
+    }
+
+    /// Input tokens read from the prompt cache (a small fraction of the
+    /// base input price).
+    #[must_use]
+    pub fn cache_read_input_tokens(&self) -> u64 {
+        self.cache_read_input_tokens
     }
 
     /// Output tokens, thinking included.
@@ -48,6 +70,9 @@ impl std::ops::Add for Usage {
     fn add(self, rhs: Self) -> Self {
         Self {
             input_tokens: self.input_tokens + rhs.input_tokens,
+            cache_creation_input_tokens: self.cache_creation_input_tokens
+                + rhs.cache_creation_input_tokens,
+            cache_read_input_tokens: self.cache_read_input_tokens + rhs.cache_read_input_tokens,
             output_tokens: self.output_tokens + rhs.output_tokens,
         }
     }

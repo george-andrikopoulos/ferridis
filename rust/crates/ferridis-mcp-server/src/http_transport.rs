@@ -357,7 +357,7 @@ mod tests {
     fn dummy_server() -> Server {
         // Empty catalogue; no client calls go through these tests.
         let client = std::sync::Arc::new(ferridis_client::Client::ephemeral());
-        Server::new(client, crate::tools::ToolCatalogue::default())
+        Server::new(client, crate::tools::ToolCatalogue::default(), None)
     }
 
     #[test]

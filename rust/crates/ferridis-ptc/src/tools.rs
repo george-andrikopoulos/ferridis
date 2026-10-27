@@ -11,6 +11,7 @@ use serde::{Serialize, Serializer};
 use serde_json::Value;
 
 use crate::policy::{PolicySource, ResolvedPolicy};
+use crate::request::CacheControl;
 
 /// The code-execution tool version whose container runs programmatic
 /// calls. Also the `allowed_callers` value that makes a tool callable
@@ -190,17 +191,44 @@ impl ToolSet {
     }
 }
 
+/// The last custom tool carries a prompt-caching breakpoint. Tools render
+/// first in the prompt and never change within a plan, so the breakpoint
+/// caches the whole tools array on its own: a second conversation built
+/// from the same plan reads it even though its prompt differs. (With 112
+/// federated tools the array was measured at about 25,000 input tokens.)
 impl Serialize for ToolSet {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut seq = s.serialize_seq(None)?;
         if self.code_execution == CodeExecution::Offered {
             seq.serialize_element(&CodeExecutionTool)?;
         }
-        for d in &self.definitions {
-            seq.serialize_element(d)?;
+        let last = self.definitions.len().checked_sub(1);
+        for (i, definition) in self.definitions.iter().enumerate() {
+            let breakpoint = if Some(i) == last {
+                Breakpoint::CacheHere
+            } else {
+                Breakpoint::None
+            };
+            seq.serialize_element(&MarkedDefinition {
+                definition,
+                breakpoint,
+            })?;
         }
         seq.end()
     }
+}
+
+/// Whether a tool definition ends a cached prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Breakpoint {
+    None,
+    CacheHere,
+}
+
+/// A tool definition as sent, with its breakpoint.
+struct MarkedDefinition<'d> {
+    definition: &'d ToolDefinition,
+    breakpoint: Breakpoint,
 }
 
 struct CodeExecutionTool;
@@ -223,17 +251,22 @@ struct ToolDefinition {
     callers: CallerPolicy,
 }
 
-impl Serialize for ToolDefinition {
+impl Serialize for MarkedDefinition<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let allowed: [&str; 1] = match self.callers {
+        let d = self.definition;
+        let allowed: [&str; 1] = match d.callers {
             CallerPolicy::Direct => ["direct"],
             CallerPolicy::Code => [CODE_EXECUTION_TOOL_TYPE],
         };
-        let mut map = s.serialize_map(Some(4))?;
-        map.serialize_entry("name", self.name.as_str())?;
-        map.serialize_entry("description", &self.description)?;
-        map.serialize_entry("input_schema", &self.input_schema)?;
+        let mut map = s.serialize_map(None)?;
+        map.serialize_entry("name", d.name.as_str())?;
+        map.serialize_entry("description", &d.description)?;
+        map.serialize_entry("input_schema", &d.input_schema)?;
         map.serialize_entry("allowed_callers", &allowed)?;
+        match self.breakpoint {
+            Breakpoint::CacheHere => map.serialize_entry("cache_control", &CacheControl)?,
+            Breakpoint::None => {}
+        }
         map.end()
     }
 }

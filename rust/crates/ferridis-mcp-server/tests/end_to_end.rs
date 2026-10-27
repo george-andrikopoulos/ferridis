@@ -35,6 +35,21 @@ async fn spin_fs_adapter(dir: &TempDir) -> SocketAddr {
     addr
 }
 
+/// A port no adapter can answer on: held for the rest of the test binary,
+/// every connection closed unanswered. Binding and releasing a port instead
+/// lets a parallel test's fs adapter be handed the same port, which then
+/// registers its 5 tools where none were expected.
+async fn unanswering_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            drop(conn);
+        }
+    });
+    port
+}
+
 fn write_adapters_config(dir: &TempDir, addr: SocketAddr) -> std::path::PathBuf {
     let path = dir.path().join("adapters.json");
     let body = serde_json::json!([{
@@ -259,12 +274,7 @@ async fn partial_failure_keeps_successful_adapters_alive() {
 
     // Grab a port and immediately release it. Subsequent connect()
     // attempts will see ECONNREFUSED — a deterministic register failure.
-    let bad_port = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        port
-    };
+    let bad_port = unanswering_port().await;
 
     // adapters.json: one good Native, one bad Native pointing at the
     // freed port. The good one must come second so we also prove the
@@ -329,12 +339,7 @@ async fn partial_failure_keeps_successful_adapters_alive() {
 async fn partial_failure_with_all_adapters_failing_still_serves() {
     let work = TempDir::new().unwrap();
 
-    let bad_port = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        port
-    };
+    let bad_port = unanswering_port().await;
 
     let cfg_path = work.path().join("adapters.json");
     let body = serde_json::json!([

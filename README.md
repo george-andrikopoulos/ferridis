@@ -61,7 +61,7 @@ New in v0.7. Claude writes a short program, the program calls Ferridis tools fro
 
 ![What can't go wrong in a turn](./diagrams/ptc-guards.svg)
 
-Programmatic tool calling is a Messages API feature, so it runs through `ferridis-ptc` with an Anthropic API key. MCP clients, the editors included, still call Ferridis tools one at a time. Setup, defaults and the live-run figures are in [RELEASE-v0.7.md](./RELEASE-v0.7.md).
+Programmatic tool calling is a Messages API feature, so it runs through `ferridis-ptc` with an Anthropic API key. MCP clients call tools one at a time, so for them `ferridis-mcp-server` offers it as one tool: started with `--ptc-api-key-file`, it lists `ferridis_ptc_run`, which takes a task, runs a whole programmatic conversation server-side over the same tools it publishes, and returns the final answer. VS Code, Zed and Claude Code see it as an ordinary tool. Every call is billed to that key; requests use prompt caching, and runs go one at a time. Setup is in [INSTALL.md](./INSTALL.md#programmatic-tool-calling-for-mcp-clients); defaults and the first live figures are in [RELEASE-v0.7.md](./RELEASE-v0.7.md).
 
 ## Building from source
 

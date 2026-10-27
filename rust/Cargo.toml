@@ -33,6 +33,7 @@ ferridis-core = { path = "crates/ferridis-core", version = "0.7.0" }
 ferridis-protocol = { path = "crates/ferridis-protocol", version = "0.7.0" }
 ferridis-adapter-sdk = { path = "crates/ferridis-adapter-sdk", version = "0.7.0" }
 ferridis-client = { path = "crates/ferridis-client", version = "0.7.0" }
+ferridis-ptc = { path = "crates/ferridis-ptc", version = "0.7.0" }
 
 # Core dependencies
 serde = { version = "1", features = ["derive"] }

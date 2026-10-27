@@ -97,15 +97,19 @@ async fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let calls = outcome.calls();
+    let usage = outcome.usage();
     eprintln!(
-        "turns {} | programmatic {} direct {} refused {} failed {} | tokens in {} out {}",
+        "turns {} | programmatic {} direct {} refused {} failed {} | \
+         tokens in {} (cache write {}, cache read {}) out {}",
         outcome.turns(),
         calls.programmatic(),
         calls.direct(),
         calls.refused(),
         calls.failed(),
-        outcome.usage().input_tokens(),
-        outcome.usage().output_tokens()
+        usage.input_tokens(),
+        usage.cache_creation_input_tokens(),
+        usage.cache_read_input_tokens(),
+        usage.output_tokens()
     );
     println!("{}", outcome.final_turn().text());
     Ok(())

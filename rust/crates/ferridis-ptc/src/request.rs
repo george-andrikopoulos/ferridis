@@ -199,6 +199,7 @@ impl Conversation {
             messages: &self.messages,
             tools: &self.tools,
             container,
+            cache_control: CacheControl,
         }
     }
 }
@@ -207,6 +208,13 @@ impl Conversation {
 /// or sampling fields: forced tool choice and disabled parallel use are
 /// rejected with programmatic calling, and the current API version
 /// rejects sampling parameters.
+///
+/// Every request asks for automatic prompt caching (the top-level
+/// `cache_control`): the API moves that breakpoint to the end of the
+/// growing conversation, so each turn reads the previous turn's prefix.
+/// The tools array carries its own breakpoint (see
+/// [`ToolSet`](crate::ToolSet)), so separate conversations offering the
+/// same tools share it too.
 #[derive(Debug, Serialize)]
 pub(crate) struct RequestBody<'c> {
     model: &'c str,
@@ -217,4 +225,21 @@ pub(crate) struct RequestBody<'c> {
     tools: &'c ToolSet,
     #[serde(skip_serializing_if = "Option::is_none")]
     container: Option<&'c ContainerId>,
+    cache_control: CacheControl,
+}
+
+/// A prompt-caching breakpoint with the default five-minute lifetime.
+///
+/// Five minutes, not an hour: a cache read refreshes the entry, turns of
+/// one conversation start seconds apart, and the one-hour write costs
+/// twice the base input price against 1.25 times for five minutes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CacheControl;
+
+impl Serialize for CacheControl {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut map = s.serialize_map(Some(1))?;
+        map.serialize_entry("type", "ephemeral")?;
+        map.end()
+    }
 }

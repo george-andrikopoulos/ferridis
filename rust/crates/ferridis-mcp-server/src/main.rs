@@ -38,10 +38,11 @@
 // context and we don't want to box it everywhere just to hush clippy.
 #![allow(clippy::result_large_err)]
 
-mod bearer;
 mod http_transport;
 mod oauth_server;
 mod protocol;
+mod ptc_tool;
+mod secret_file;
 mod server;
 mod tools;
 
@@ -52,9 +53,13 @@ use ferridis_client::adapters::{AdaptersFile, register_adapters, source_with_res
 use ferridis_client::catalogue::Catalogue;
 use ferridis_client::{Client, DiscoveryHandle, Wallet};
 use ferridis_core::CapabilityRef;
+use ferridis_ptc::{ApiKey, WorkspaceId};
+use secrecy::ExposeSecret;
 use tracing::{error, info, warn};
 use url::Url;
 
+use crate::ptc_tool::{PTC_TOOL_NAME, PtcSettings, PtcTool};
+use crate::secret_file::{SecretFlag, read_secret_file};
 use crate::server::Server;
 use crate::tools::ToolCatalogue;
 
@@ -180,8 +185,26 @@ async fn main() {
         }
     }
 
-    let catalogue = ToolCatalogue::new(Catalogue::from_sources(&entries));
-    let server = Arc::new(Server::new(client, catalogue));
+    let catalogue = Catalogue::from_sources(&entries);
+    let ptc = match args.ptc {
+        None => None,
+        Some(_) if catalogue.resolve(PTC_TOOL_NAME).is_some() => {
+            error!(
+                tool = PTC_TOOL_NAME,
+                "a registered adapter publishes a tool with the programmatic-run tool's name; \
+                 refusing to start rather than let one shadow the other"
+            );
+            std::process::exit(1);
+        }
+        Some(settings) => Some(PtcTool::new(
+            settings,
+            Arc::clone(&client),
+            &catalogue,
+            adapters_file.caller_overrides(),
+        )),
+    };
+    let catalogue = ToolCatalogue::new(catalogue);
+    let server = Arc::new(Server::new(client, catalogue, ptc));
 
     match args.transport {
         Transport::Stdio => {
@@ -242,6 +265,9 @@ struct Args {
     /// catalogue. An SSE subscription keeps the catalogue updated for
     /// new arrivals while the server runs.
     discovery_broker: Option<Url>,
+    /// Programmatic tool calling, offered as the `ferridis_ptc_run` tool.
+    /// Set by `--ptc-api-key-file`; absent, the tool is not listed.
+    ptc: Option<PtcSettings>,
 }
 
 /// Which transport the publisher should serve on. Both speak the same
@@ -276,6 +302,9 @@ impl Args {
         let mut bearer_file: Option<PathBuf> = None;
         let mut oauth_public_base_url: Option<String> = None;
         let mut discovery_broker: Option<Url> = None;
+        let mut ptc_api_key_file: Option<PathBuf> = None;
+        let mut ptc_workspace_id: Option<String> = None;
+        let mut ptc_endpoint: Option<Url> = None;
         let mut args = std::env::args().skip(1);
         while let Some(a) = args.next() {
             match a.as_str() {
@@ -321,6 +350,25 @@ impl Args {
                         .ok_or_else(|| "--discovery-broker expects a URL".to_string())?;
                     let u = Url::parse(&v).map_err(|e| format!("--discovery-broker `{v}`: {e}"))?;
                     discovery_broker = Some(u);
+                }
+                "--ptc-api-key-file" => {
+                    let v = args
+                        .next()
+                        .ok_or_else(|| "--ptc-api-key-file expects a path".to_string())?;
+                    ptc_api_key_file = Some(PathBuf::from(v));
+                }
+                "--ptc-workspace-id" => {
+                    let v = args
+                        .next()
+                        .ok_or_else(|| "--ptc-workspace-id expects an id".to_string())?;
+                    ptc_workspace_id = Some(v);
+                }
+                "--ptc-endpoint" => {
+                    let v = args
+                        .next()
+                        .ok_or_else(|| "--ptc-endpoint expects a URL".to_string())?;
+                    let u = Url::parse(&v).map_err(|e| format!("--ptc-endpoint `{v}`: {e}"))?;
+                    ptc_endpoint = Some(u);
                 }
                 "--help" | "-h" => {
                     Self::print_help();
@@ -375,9 +423,10 @@ impl Args {
                              --bearer-token or FERRIDIS_MCP_BEARER; give the bearer one source"
                             .to_string());
                     }
-                    (Some(path), None) => {
-                        Some(bearer::read_bearer_file(&path).map_err(|e| e.to_string())?)
-                    }
+                    (Some(path), None) => Some(
+                        read_secret_file(SecretFlag::BearerTokenFile, &path)
+                            .map_err(|e| e.to_string())?,
+                    ),
                     (None, Some(s)) if s.trim().is_empty() => {
                         return Err("bearer token must not be empty".to_string());
                     }
@@ -420,12 +469,42 @@ impl Args {
             }
         };
 
+        // The workspace and endpoint only shape requests made with the
+        // key; without one there is nothing for them to apply to.
+        let ptc = match ptc_api_key_file {
+            None => {
+                if ptc_workspace_id.is_some() {
+                    return Err(
+                        "--ptc-workspace-id is only meaningful with --ptc-api-key-file".to_string(),
+                    );
+                }
+                if ptc_endpoint.is_some() {
+                    return Err(
+                        "--ptc-endpoint is only meaningful with --ptc-api-key-file".to_string()
+                    );
+                }
+                None
+            }
+            Some(path) => {
+                let key = read_secret_file(SecretFlag::PtcApiKeyFile, &path)
+                    .map_err(|e| e.to_string())?;
+                let api_key = ApiKey::new(key.expose_secret().to_owned())
+                    .map_err(|e| format!("--ptc-api-key-file {}: {e}", path.display()))?;
+                let workspace = ptc_workspace_id
+                    .map(WorkspaceId::new)
+                    .transpose()
+                    .map_err(|e| format!("--ptc-workspace-id: {e}"))?;
+                Some(PtcSettings::new(api_key, workspace, ptc_endpoint))
+            }
+        };
+
         Ok(Self {
             adapters_config,
             keychain_namespace,
             use_memory_wallet,
             transport,
             discovery_broker,
+            ptc,
         })
     }
 
@@ -470,5 +549,18 @@ impl Args {
         eprintln!("                              in /.well-known/oauth-authorization-server.");
         eprintln!("                              Required for claude.ai Custom Connectors.");
         eprintln!("                              (also FERRIDIS_OAUTH_PUBLIC_BASE_URL env var)");
+        eprintln!();
+        eprintln!("Programmatic tool calling (off unless --ptc-api-key-file is set):");
+        eprintln!("  --ptc-api-key-file <path>   Read an Anthropic API key from a file and offer");
+        eprintln!("                              the `ferridis_ptc_run` tool: a client hands it a");
+        eprintln!("                              task and the server runs one programmatic-tool-");
+        eprintln!("                              calling conversation over these same tools.");
+        eprintln!("                              Every call is billed to the key; one run at a");
+        eprintln!("                              time. Code-callable tools come from the adapters");
+        eprintln!("                              file's `callers` map.");
+        eprintln!("  --ptc-workspace-id <id>     Anthropic workspace for those requests; needed");
+        eprintln!("                              with a key not scoped to a workspace.");
+        eprintln!("  --ptc-endpoint <url>        Post to this Messages API URL instead (a proxy,");
+        eprintln!("                              or a replay server in tests).");
     }
 }

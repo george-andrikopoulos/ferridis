@@ -220,7 +220,7 @@ Said plainly, so nobody has to find them:
 - **Server-side refusal fallback is not enabled.** If the model declines, the run ends. Fallback changes which model answers, which is the operator's call, not a library default.
 - **The result cap bounds what is sent, not what is held.** The adapter's whole response is in memory before it is measured.
 - **`ferridis-mcp-server` still speaks MCP 2024-11-05.** Moving it to a spec with `outputSchema` and `structuredContent` is a separate piece of work.
-- **Programmatic tool calling is a Messages API feature, so it runs through `ferridis-ptc`.** MCP clients, including the editors, still call Ferridis tools one at a time. The MCP server and `ferridis-ptc` give each tool the same name, so a policy written for one reads correctly for the other.
+- **Programmatic tool calling is a Messages API feature, so it runs through `ferridis-ptc`.** MCP clients, including the editors, still call Ferridis tools one at a time. The MCP server and `ferridis-ptc` give each tool the same name, so a policy written for one reads correctly for the other. *Since the v0.7.0 tag:* `ferridis-mcp-server --ptc-api-key-file` offers a whole programmatic run to MCP clients as one tool, `ferridis_ptc_run`; see [INSTALL.md](./INSTALL.md#programmatic-tool-calling-for-mcp-clients).
 - **The editor extensions are partly verified by hand.** The VS Code extension's settings parsing and token checks have 11 tests. Its MCP provider, secret storage and the Zed extension are still checked manually.
 
 The full per-feature contract, with the test that enforces each row, is in [FEATURES.md](./FEATURES.md). The design decisions behind this release, including the alternatives rejected, are in the decisions log in [architecture.md](./architecture.md).

@@ -1352,6 +1352,7 @@ dependencies = [
  "ferridis-client",
  "ferridis-core",
  "ferridis-protocol",
+ "ferridis-ptc",
  "futures-util",
  "rand 0.8.6",
  "reqwest",
@@ -1365,6 +1366,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "wiremock",
 ]
 
 [[package]]

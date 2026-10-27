@@ -214,7 +214,17 @@ These three paths are pinned by replay and unit tests only; the live smoke test 
 Out of scope for PTC (separate items, not started):
 
 - [ ] Move `ferridis-mcp-server` from MCP 2024-11-05 to a current spec (`outputSchema` / `structuredContent`).
-- [ ] Any `ferridis-mcp-server` change beyond what PTC-3 approved (the catalogue move and loading response schemas at registration).
+- [x] ~~Any `ferridis-mcp-server` change beyond what PTC-3 approved.~~ Widened on 2026-10-26 by the maintainer's choice: `ferridis_ptc_run` (next section).
+
+### `ferridis_ptc_run`: programmatic tool calling for MCP clients (2026-10-26)
+
+- [x] **Prompt caching in `ferridis-ptc`.** Top-level automatic `cache_control` plus a breakpoint on the last tool; `Usage` reports cache write and cache read; `ptc_run` prints them. Pinned by `every_request_caches_the_tools_and_the_conversation`.
+- [x] **`ferridis_ptc_run` in `ferridis-mcp-server`.** `--ptc-api-key-file` (plus optional `--ptc-workspace-id`, `--ptc-endpoint`), `secret_file.rs` shared with `--bearer-token-file`, one run at a time, startup refusal on a name collision. End-to-end tests in `tests/ptc_tool.rs` against the real binary. Local gate passed on Windows (after `cargo fmt`): 465 passed, 0 failed, 4 ignored.
+- [x] **Deployed to the FerridisMCP service** with `deploy-ptc-tool.ps1` (backup, hash-checked binaries, object-form `adapters.json` with a `callers` map marking 61 read-only tools `code`, `--ptc-api-key-file` in the XML; key and bearer occurrences in the XML and the logs: 0). Probes: token 200, none 401, version 0.7.0, tools 112 → 113.
+- [x] **Live run through the service endpoint.** One Home Assistant question: 2 turns, 1 call from code, ~$0.18 in tokens; no workspace ID was needed for this key.
+- [ ] **Test the startup refusal of a catalogue tool named `ferridis_ptc_run`.** Needs an adapter whose generated tool name collides; the names carry a `ferridis_` prefix and a capability id, so the fixture must be built deliberately.
+- [x] **Fixed a race in `tests/end_to_end.rs`, found by the gate.** The two partial-failure tests bound a port, released it, and used it as the dead adapter; a parallel test's fs adapter could be handed the same port, and `partial_failure_with_all_adapters_failing_still_serves` then saw 5 tools. `unanswering_port()` now holds the port for the test binary's life and closes every connection unanswered.
+- [ ] Linux leg of the local gate for this change (WSL).
 - [ ] Derive native adapters' **input** schemas from the OpenAPI `requestBody` and retire the hardcoded fs table in the catalogue. The data is now parseable JSON, but this changes client-side dispatch validation, so it needs its own change.
 
 ## Release v0.7.0 (2026-10-26)
