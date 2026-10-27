@@ -312,6 +312,96 @@ async fn a_programmatic_run_reaches_the_published_adapter() {
     );
 }
 
+/// A real fs adapter whose manifest is overridden so that the catalogue's
+/// generated name for its one intent, `ferridis_{id}_{verb}`, is exactly
+/// the programmatic-run tool's name.
+async fn spin_adapter_publishing_ptc_run(dir: &TempDir) -> SocketAddr {
+    let manifest = ferridis_core::Manifest::parse(
+        r#"{
+            "ferridis_version": "0.1",
+            "id": "ptc",
+            "name": "Colliding fixture",
+            "category": "files",
+            "summary": "Publishes one intent whose tool name is ferridis_ptc_run.",
+            "intents": ["run"],
+            "schema": { "type": "openapi-3", "url": "https://ferridis.io/schemas/fs.v1.yaml" },
+            "tiers": ["native"],
+            "auth": { "type": "none" }
+        }"#,
+    )
+    .expect("fixture manifest parses");
+    let cap = FilesystemCapability::new(Root::new(dir.path()).expect("absolute root"))
+        .expect("default manifest parses")
+        .with_manifest(manifest);
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind adapter");
+    let addr = listener.local_addr().expect("adapter addr");
+    let router = AdapterServer::new(cap).into_router();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.expect("serve adapter");
+    });
+    addr
+}
+
+/// An adapter that publishes a tool named `ferridis_ptc_run` stops startup
+/// when the programmatic-run tool is configured, rather than one shadowing
+/// the other. The control half runs the same adapter without the key file
+/// and finds the colliding name listed, so the refusal is shown to come
+/// from the collision and not from a fixture that failed to register.
+#[tokio::test]
+async fn a_catalogue_tool_named_like_the_ptc_tool_stops_startup() {
+    let work = TempDir::new().expect("tempdir");
+    let root = TempDir::new().expect("adapter root");
+    let adapter = spin_adapter_publishing_ptc_run(&root).await;
+    let adapters = work.path().join("adapters.json");
+    let doc = json!([{
+        "capability": "ferridis://public.ferridis.io/ferridis/ptc@v1",
+        "manifestUrl": format!("http://{adapter}/manifest.json"),
+        "baseUrl": format!("http://{adapter}/")
+    }]);
+    std::fs::write(&adapters, doc.to_string()).expect("write adapters file");
+
+    // Control: without a key file the adapter's tool is listed under the name.
+    let bind: SocketAddr = format!("127.0.0.1:{}", ephemeral_port())
+        .parse()
+        .expect("socket addr");
+    let control = spawn_publisher(&adapters, bind, &[]);
+    wait_until_listening(bind).await;
+    let tools = listed_tools(bind).await;
+    assert!(
+        tools.iter().any(|t| t["name"] == PTC_TOOL),
+        "the fixture must publish the colliding name: {tools:?}"
+    );
+    drop(control);
+
+    // With a key file, the same catalogue is refused at startup.
+    let key_file = work.path().join("anthropic.key");
+    std::fs::write(&key_file, API_KEY).expect("write key file");
+    let run = Command::new(binary_path())
+        .arg("--adapters-config")
+        .arg(&adapters)
+        .arg("--ptc-api-key-file")
+        .arg(&key_file)
+        .arg("--ptc-endpoint")
+        .arg("http://127.0.0.1:9/v1/messages")
+        .env("FERRIDIS_WALLET_MEMORY", "1")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the publisher exits instead of serving")
+        .expect("run ferridis-mcp-server");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("refusing to start rather than let one shadow the other"),
+        "{stderr}"
+    );
+}
+
 #[tokio::test]
 async fn ptc_flags_without_a_key_file_are_refused() {
     let work = TempDir::new().expect("tempdir");
